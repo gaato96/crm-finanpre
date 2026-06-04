@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/types'
 import type { User } from '@supabase/supabase-js'
@@ -23,46 +23,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
-  // Ensure loading is always resolved, even if Supabase never responds
-  const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-      setProfile(data)
-    } catch {
-      setProfile(null)
-    }
-  }
 
   useEffect(() => {
-    // Safety timeout: if auth never resolves in 5s, stop loading
-    safetyTimer.current = setTimeout(() => {
-      setLoading(false)
-    }, 5000)
+    // Create client inside effect to avoid SSR issues
+    const supabase = createClient()
 
-    // onAuthStateChange is the primary source of truth.
-    // It fires immediately with the current session (INITIAL_SESSION event),
-    // so we don't need a separate getUser() call.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        // Clear safety timer since we got a response
-        if (safetyTimer.current) clearTimeout(safetyTimer.current)
+    const fetchProfile = async (userId: string) => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single()
+        setProfile(data)
+      } catch {
+        setProfile(null)
+      }
+    }
 
+    // Step 1: Use getSession() to read the local session immediately.
+    // This reads from browser cookies/localStorage — no network request needed.
+    // This is what resolves the loading state fast.
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
         const currentUser = session?.user ?? null
         setUser(currentUser)
+        if (currentUser) {
+          await fetchProfile(currentUser.id)
+        }
+      } catch (err) {
+        console.error('Auth init error:', err)
+        setUser(null)
+        setProfile(null)
+      } finally {
+        setLoading(false)
+      }
+    }
 
+    initAuth()
+
+    // Step 2: Subscribe to future auth changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        const currentUser = session?.user ?? null
+        setUser(currentUser)
         if (currentUser) {
           await fetchProfile(currentUser.id)
         } else {
           setProfile(null)
         }
-
+        // Always resolve loading in case initAuth didn't finish first
         setLoading(false)
       }
     )
@@ -76,11 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       subscription.unsubscribe()
-      if (safetyTimer.current) clearTimeout(safetyTimer.current)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const signOut = async () => {
+    const supabase = createClient()
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)

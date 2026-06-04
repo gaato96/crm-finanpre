@@ -4,47 +4,41 @@ export function createClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+  // If env vars are missing (e.g., during build or misconfiguration),
+  // return a safe mock that resolves auth calls without hanging forever.
   if (!url || !anonKey) {
     if (typeof window !== 'undefined') {
-      console.warn('⚠️ Supabase URL or Anon Key is missing. Using mock client to prevent build crash. Check Vercel environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+      console.error(
+        '❌ NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing from the browser bundle. ' +
+        'Make sure these are set in Vercel BEFORE building. Redeploy if you just added them.'
+      )
     }
-    const dummyClient = createBrowserClient('https://dummy.supabase.co', 'dummy-key')
-    // Fallback proxy to prevent build crashes in Next.js build step when environment variables are missing
-    return new Proxy({} as any, {
-      get(target, prop) {
-        if (prop === 'auth') {
-          return new Proxy({} as any, {
-            get(authTarget, authProp) {
-              if (authProp === 'onAuthStateChange') {
-                return () => ({ data: { subscription: { unsubscribe: () => {} } } })
-              }
-              // Return a rejected promise or error for authentication attempts on mock client
-              if (authProp === 'signInWithPassword') {
-                return () => Promise.resolve({ data: {}, error: { message: 'Supabase no está configurado en Vercel. Por favor, añade las variables de entorno.' } })
-              }
-              return () => Promise.resolve({ data: { user: null }, error: null })
-            }
-          })
-        }
-        if (prop === 'from') {
-          return () => new Proxy({} as any, {
-            get(fromTarget, fromProp) {
-              // Handle chaining like from().select().eq().single()
-              const handler = () => new Proxy({} as any, {
-                get(methodTarget, methodProp) {
-                  if (typeof methodProp === 'string' && ['eq', 'select', 'order', 'limit', 'single'].includes(methodProp)) {
-                    return handler
-                  }
-                  return () => Promise.resolve({ data: null, error: null })
-                }
-              })
-              return handler()
-            }
-          })
-        }
-        return () => Promise.resolve({ data: null, error: null })
-      }
-    }) as unknown as typeof dummyClient
+
+    // Create a real-looking mock that resolves immediately so the app never hangs
+    return {
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+        getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+        signInWithPassword: () =>
+          Promise.resolve({
+            data: { user: null, session: null },
+            error: { message: 'Variables de entorno de Supabase no configuradas. Contacta al administrador.' },
+          }),
+        signOut: () => Promise.resolve({ error: null }),
+        onAuthStateChange: (callback: (event: string, session: null) => void) => {
+          // Call immediately with null session so loading resolves
+          setTimeout(() => callback('INITIAL_SESSION', null), 0)
+          return { data: { subscription: { unsubscribe: () => {} } } }
+        },
+      },
+      from: (_table: string) => ({
+        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+        insert: () => Promise.resolve({ data: null, error: null }),
+        update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        delete: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+        upsert: () => Promise.resolve({ data: null, error: null }),
+      }),
+    } as any
   }
 
   return createBrowserClient(url, anonKey)
