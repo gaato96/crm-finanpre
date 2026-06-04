@@ -24,7 +24,7 @@ export default function LoginPage() {
 
     const supabase = createClient()
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
@@ -35,9 +35,9 @@ export default function LoginPage() {
       return
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = data?.user
     if (!user) {
-      setError('Error al obtener el usuario.')
+      setError('Error al obtener el usuario. Intentá nuevamente.')
       setLoading(false)
       return
     }

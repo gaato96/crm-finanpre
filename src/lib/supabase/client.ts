@@ -5,6 +5,9 @@ export function createClient() {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (!url || !anonKey) {
+    if (typeof window !== 'undefined') {
+      console.warn('⚠️ Supabase URL or Anon Key is missing. Using mock client to prevent build crash. Check Vercel environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.')
+    }
     const dummyClient = createBrowserClient('https://dummy.supabase.co', 'dummy-key')
     // Fallback proxy to prevent build crashes in Next.js build step when environment variables are missing
     return new Proxy({} as any, {
@@ -14,6 +17,10 @@ export function createClient() {
             get(authTarget, authProp) {
               if (authProp === 'onAuthStateChange') {
                 return () => ({ data: { subscription: { unsubscribe: () => {} } } })
+              }
+              // Return a rejected promise or error for authentication attempts on mock client
+              if (authProp === 'signInWithPassword') {
+                return () => Promise.resolve({ data: {}, error: { message: 'Supabase no está configurado en Vercel. Por favor, añade las variables de entorno.' } })
               }
               return () => Promise.resolve({ data: { user: null }, error: null })
             }
