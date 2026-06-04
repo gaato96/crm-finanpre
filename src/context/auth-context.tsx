@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/types'
 import type { User } from '@supabase/supabase-js'
@@ -24,57 +24,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
+  // Ensure loading is always resolved, even if Supabase never responds
+  const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      setProfile(data)
+    } catch {
+      setProfile(null)
+    }
+  }
 
   useEffect(() => {
-    const getUser = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        setUser(user)
+    // Safety timeout: if auth never resolves in 5s, stop loading
+    safetyTimer.current = setTimeout(() => {
+      setLoading(false)
+    }, 5000)
 
-        if (user) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single()
-          setProfile(data)
-        }
-      } catch (err) {
-        console.error('Error fetching user on init:', err)
-        // In case of error (e.g., no session), keep user null
-        setUser(null)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    getUser()
-
-    // Register service worker for PWA
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
-        console.error('Service worker registration failed:', err)
-      })
-    }
-
+    // onAuthStateChange is the primary source of truth.
+    // It fires immediately with the current session (INITIAL_SESSION event),
+    // so we don't need a separate getUser() call.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-          setProfile(data)
+        // Clear safety timer since we got a response
+        if (safetyTimer.current) clearTimeout(safetyTimer.current)
+
+        const currentUser = session?.user ?? null
+        setUser(currentUser)
+
+        if (currentUser) {
+          await fetchProfile(currentUser.id)
         } else {
           setProfile(null)
         }
+
         setLoading(false)
       }
     )
 
-    return () => subscription.unsubscribe()
+    // Register service worker for PWA
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {
+        // Ignore SW registration errors silently
+      })
+    }
+
+    return () => {
+      subscription.unsubscribe()
+      if (safetyTimer.current) clearTimeout(safetyTimer.current)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const signOut = async () => {

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/context/auth-context'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -32,16 +32,31 @@ const navItems = [
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const { profile, signOut, loading } = useAuth()
+  const router = useRouter()
+  const { profile, signOut, loading, user } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  useEffect(() => {
+    // Only redirect after auth has finished loading
+    if (!loading && !user) {
+      router.replace('/login')
+    }
+  }, [loading, user, router])
+
+  // Show spinner only briefly while auth resolves
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+          <p className="text-sm text-muted-foreground">Verificando sesión...</p>
+        </div>
       </div>
     )
   }
+
+  // If no user after loading, render nothing (redirect is in progress)
+  if (!user) return null
 
   const isActive = (href: string, exact?: boolean) => {
     if (exact) return pathname === href
