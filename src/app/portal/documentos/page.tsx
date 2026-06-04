@@ -18,7 +18,7 @@ export default function PortalDocumentosPage() {
     if (!user) return
     const supabase = createClient()
     supabase.from('contracts').select('*').eq('client_id', user.id).order('created_at', { ascending: false })
-      .then(({ data }) => { setContracts(data || []); setLoading(false) })
+      .then(({ data }: { data: any }) => { setContracts(data || []); setLoading(false) })
   }, [user])
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" /></div>
