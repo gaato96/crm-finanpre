@@ -164,7 +164,7 @@ export default function ClientesPage() {
 
     // Fetch contract/credit counts in parallel
     const enriched: ClientWithData[] = await Promise.all(
-      profiles.map(async (p) => {
+      (profiles as Profile[]).map(async (p) => {
         const [contractsRes, creditsRes] = await Promise.all([
           supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('client_id', p.id),
           supabase.from('credits').select('id', { count: 'exact', head: true }).eq('client_id', p.id),
