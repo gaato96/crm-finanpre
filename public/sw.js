@@ -29,7 +29,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests and non-http/https schemes to avoid chrome-extension/etc issues
   if (event.request.method !== 'GET') return;
-  
+
   try {
     const url = new URL(event.request.url);
     if (!url.protocol.startsWith('http')) return;
@@ -37,18 +37,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network first, fallback to cache
+  // Network first, fallback to cache. Ensure we always return a Response.
   event.respondWith(
     fetch(event.request)
       .then((response) => {
         // Clone the response before caching
-        if (response.status === 200) {
+        if (response && response.status === 200) {
           const responseClone = response.clone();
-          caches.open(CACHE_NAME)
-            .then((cache) => cache.put(event.request, responseClone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
         }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => {
+        return caches.match(event.request).then((cached) => cached || new Response('', { status: 504, statusText: 'Gateway Timeout' }));
+      })
   );
 });
