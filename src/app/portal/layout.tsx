@@ -19,7 +19,7 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
 
   // Guard: if an admin somehow reaches /portal, redirect to /admin
   useEffect(() => {
-    if (!loading && profile?.role === 'admin') {
+    if (!loading && (profile?.role === 'admin' || profile?.role === 'vendedor')) {
       router.replace('/admin')
     }
   }, [loading, profile, router])

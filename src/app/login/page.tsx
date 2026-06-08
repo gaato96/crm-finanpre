@@ -48,7 +48,7 @@ export default function LoginPage() {
       .eq('id', user.id)
       .single()
 
-    if (profile?.role === 'admin') {
+    if (profile?.role === 'admin' || profile?.role === 'vendedor') {
       router.push('/admin')
     } else {
       router.push('/portal')
