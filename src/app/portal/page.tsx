@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import type { Contract, ContractEvent } from '@/lib/types'
+import { FormattedAmount } from '@/components/ui/formatted-amount'
 import {
   formatCurrency,
   formatCurrencyPrecise,
@@ -376,12 +377,12 @@ export default function PortalHomePage() {
       </Card>
 
       {/* Main Ticker Balance Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* ARS Portfolio */}
         {(tickerARS.total > 0 || contracts.some(c => c.currency === 'ARS')) && (
           <Card className="glass-card overflow-hidden relative">
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
-            <CardContent className="p-6 relative space-y-4">
+            <CardContent className="p-4 sm:p-5 relative space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
                   Portafolio en Pesos (ARS)
@@ -392,22 +393,32 @@ export default function PortalHomePage() {
               </div>
 
               <div>
-                <p className="text-3xl font-extrabold ticker-glow text-primary tabular-nums tracking-tight">
-                  {formatCurrencyPrecise(tickerARS.total, 'ARS')}
-                </p>
-                <div className="flex items-center gap-1.5 mt-1.5 text-xs">
-                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+                <div className="flex items-baseline overflow-x-auto scrollbar-none py-1">
+                  <FormattedAmount
+                    amount={tickerARS.total}
+                    currency="ARS"
+                    precise
+                    size="2xl"
+                    className="ticker-glow"
+                    color="text-primary"
+                  />
+                </div>
+                <div className="flex items-center gap-1 flex-wrap mt-1 text-xs">
+                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   <span className="text-emerald-400 font-semibold">
-                    +{formatCurrency(tickerARS.gains, 'ARS')}
+                    +<FormattedAmount amount={tickerARS.gains} currency="ARS" size="sm" />
                   </span>
-                  <span className="text-muted-foreground">ganancia acumulada</span>
+                  <span className="text-muted-foreground text-[10px]">acumulado</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 pt-2 border-t border-border/20 text-xs">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <p className="text-[11px] text-muted-foreground">
-                  Creciendo a <span className="font-mono text-emerald-400">+{formatCurrencyPrecise(tickerARS.eps, 'ARS')}/seg</span>
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
+                  <span>Creciendo a</span>
+                  <span className="font-mono text-emerald-400">
+                    +<FormattedAmount amount={tickerARS.eps} currency="ARS" precise size="sm" />/seg
+                  </span>
                 </p>
               </div>
             </CardContent>
@@ -418,7 +429,7 @@ export default function PortalHomePage() {
         {(tickerUSD.total > 0 || contracts.some(c => c.currency === 'USD')) && (
           <Card className="glass-card overflow-hidden relative">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
-            <CardContent className="p-6 relative space-y-4">
+            <CardContent className="p-4 sm:p-5 relative space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
                   Portafolio en Dólares (USD)
@@ -429,22 +440,32 @@ export default function PortalHomePage() {
               </div>
 
               <div>
-                <p className="text-3xl font-extrabold ticker-glow text-blue-400 tabular-nums tracking-tight">
-                  {formatCurrencyPrecise(tickerUSD.total, 'USD')}
-                </p>
-                <div className="flex items-center gap-1.5 mt-1.5 text-xs">
-                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+                <div className="flex items-baseline overflow-x-auto scrollbar-none py-1">
+                  <FormattedAmount
+                    amount={tickerUSD.total}
+                    currency="USD"
+                    precise
+                    size="2xl"
+                    className="ticker-glow"
+                    color="text-blue-400"
+                  />
+                </div>
+                <div className="flex items-center gap-1 flex-wrap mt-1 text-xs">
+                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   <span className="text-emerald-400 font-semibold">
-                    +{formatCurrency(tickerUSD.gains, 'USD')}
+                    +<FormattedAmount amount={tickerUSD.gains} currency="USD" size="sm" />
                   </span>
-                  <span className="text-muted-foreground">ganancia acumulada</span>
+                  <span className="text-muted-foreground text-[10px]">acumulado</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 pt-2 border-t border-border/20 text-xs">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <p className="text-[11px] text-muted-foreground">
-                  Creciendo a <span className="font-mono text-blue-400">+{formatCurrencyPrecise(tickerUSD.eps, 'USD')}/seg</span>
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
+                  <span>Creciendo a</span>
+                  <span className="font-mono text-blue-400">
+                    +<FormattedAmount amount={tickerUSD.eps} currency="USD" precise size="sm" />/seg
+                  </span>
                 </p>
               </div>
             </CardContent>
@@ -479,7 +500,7 @@ export default function PortalHomePage() {
 
               return (
                 <Card key={contract.id} className="glass-card overflow-hidden">
-                  <CardContent className="p-5 space-y-4">
+                  <CardContent className="p-4 sm:p-5 space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                       {/* Name & status */}
                       <div>
@@ -500,16 +521,21 @@ export default function PortalHomePage() {
                       </div>
 
                       {/* Capital values */}
-                      <div className="text-left sm:text-right">
-                        <span className="text-xs text-muted-foreground block">
-                          {isRetiro ? 'Capital a Retirar:' : 'Capital en Crecimiento:'}
+                      <div className="text-left sm:text-right shrink-0">
+                        <span className="text-[10px] text-muted-foreground block uppercase tracking-wider">
+                          {isRetiro ? 'Capital a Retirar' : 'Capital en Crecimiento'}
                         </span>
-                        <span className={`text-xl font-black ${isRetiro ? 'text-orange-400' : 'text-emerald-400'}`}>
-                          {formatCurrency(currentCap, contract.currency)}
-                        </span>
+                        <div className="mt-0.5">
+                          <FormattedAmount
+                            amount={currentCap}
+                            currency={contract.currency}
+                            size="xl"
+                            color={isRetiro ? 'text-orange-400' : 'text-emerald-400'}
+                          />
+                        </div>
                         {accrued > 0 && (
-                          <span className="text-xs text-emerald-400/80 block mt-0.5">
-                            +{formatCurrency(accrued, contract.currency)} interés ganado
+                          <span className="text-[11px] text-emerald-400/80 block mt-0.5 font-medium">
+                            +<FormattedAmount amount={accrued} currency={contract.currency} size="sm" /> ganados
                           </span>
                         )}
                       </div>
@@ -573,35 +599,36 @@ export default function PortalHomePage() {
                       </div>
                     )}
 
-                    {/* Buttons & stats */}
-                    <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/20 flex-wrap">
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <div>
-                          <span>Capital Inicial: </span>
-                          <strong className="text-foreground">{formatCurrency(Number(contract.initial_capital), contract.currency)}</strong>
-                        </div>
-                        <div>
-                          <span>Tasa Mensual: </span>
-                          <strong className="text-primary">{contract.monthly_rate}%</strong>
+                    {/* Bottom Stats Grid */}
+                    <div className="grid grid-cols-2 gap-4 pt-3 border-t border-border/20 text-xs">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase tracking-wider">Capital Inicial</span>
+                        <div className="mt-0.5">
+                          <FormattedAmount amount={Number(contract.initial_capital)} currency={contract.currency} size="sm" color="text-foreground" />
                         </div>
                       </div>
-
-                      {contract.status === 'activo' && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleRequestWithdrawal(contract.id)}
-                          disabled={submitting === contract.id}
-                          className="bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold gap-2 text-xs h-9 px-4 rounded-lg"
-                        >
-                          {submitting === contract.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <ArrowDownLeft className="w-3.5 h-3.5 text-slate-950" />
-                          )}
-                          Solicitar Retiro
-                        </Button>
-                      )}
+                      <div className="text-right">
+                        <span className="text-muted-foreground block text-[10px] uppercase tracking-wider">Tasa Mensual</span>
+                        <span className="text-primary font-bold text-sm block mt-0.5">{contract.monthly_rate}%</span>
+                      </div>
                     </div>
+
+                    {/* Withdrawal Button (Full Width) */}
+                    {contract.status === 'activo' && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleRequestWithdrawal(contract.id)}
+                        disabled={submitting === contract.id}
+                        className="w-full bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold gap-2 text-xs h-9 rounded-lg mt-2 transition-all duration-200"
+                      >
+                        {submitting === contract.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ArrowDownLeft className="w-3.5 h-3.5 text-slate-950" />
+                        )}
+                        Solicitar Retiro
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               )
@@ -630,11 +657,12 @@ export default function PortalHomePage() {
                           <Clock className="w-4 h-4" />
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-sm">
-                              Inversión en {contract.currency} · {formatCurrency(Number(contract.initial_capital), contract.currency)}
+                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                            <h4 className="font-bold text-sm text-foreground">
+                              Inversión en {contract.currency} ·
                             </h4>
-                            <Badge variant="outline" className={`text-[10px] ${getContractStatusColor(contract.status)}`}>
+                            <FormattedAmount amount={Number(contract.initial_capital)} currency={contract.currency} size="sm" color="text-foreground" />
+                            <Badge variant="outline" className={`text-[10px] ml-1.5 ${getContractStatusColor(contract.status)}`}>
                               {getContractStatusLabel(contract.status)}
                             </Badge>
                           </div>
@@ -871,9 +899,14 @@ export default function PortalHomePage() {
 
             <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-1 text-center">
               <span className="text-xs text-muted-foreground block font-semibold">Valor Estimado de Inversión:</span>
-              <span className="text-2xl font-black text-emerald-400 block tracking-tight">
-                {formatCurrency(parseFloat(valMarketValue) || 0, 'USD')}
-              </span>
+              <div className="block pt-0.5">
+                <FormattedAmount
+                  amount={parseFloat(valMarketValue) || 0}
+                  currency="USD"
+                  size="2xl"
+                  color="text-emerald-400"
+                />
+              </div>
               <span className="text-[10px] text-muted-foreground block italic pt-1">
                 La cotización real final puede variar y está sujeta a revisión ocular por un gestor.
               </span>

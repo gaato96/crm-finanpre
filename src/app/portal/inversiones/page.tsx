@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import type { Contract, AssetValuation } from '@/lib/types'
 import { formatCurrency, formatDate, daysRemaining, contractProgress, calculateAccruedInterest, isWithinDecisionWindow } from '@/lib/helpers'
+import { FormattedAmount } from '@/components/ui/formatted-amount'
 import { TrendingUp, Shield, Calendar, RefreshCw, ArrowDownToLine, CheckCircle2 } from 'lucide-react'
 
 export default function PortalInversionesPage() {
@@ -84,7 +85,14 @@ export default function PortalInversionesPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <Badge variant="outline" className={`text-xs ${status.class}`}>{status.label}</Badge>
-                    <p className="text-2xl font-bold mt-2">{formatCurrency(Number(contract.initial_capital), contract.currency)}</p>
+                    <div className="mt-2 block">
+                      <FormattedAmount
+                        amount={Number(contract.initial_capital)}
+                        currency={contract.currency}
+                        size="2xl"
+                        color="text-foreground"
+                      />
+                    </div>
                     <p className="text-xs text-muted-foreground">{contract.currency}</p>
                   </div>
                   <div className="text-right">
@@ -112,7 +120,15 @@ export default function PortalInversionesPage() {
                     </div>
                     <div className="p-3 rounded-xl bg-primary/5 border border-primary/10 text-center">
                       <p className="text-[10px] text-muted-foreground">Interés acumulado</p>
-                      <p className="text-lg font-bold text-primary">+{formatCurrency(accrued, contract.currency)}</p>
+                      <div className="block mt-0.5">
+                        <span className="text-primary font-bold text-lg">+</span>
+                        <FormattedAmount
+                          amount={accrued}
+                          currency={contract.currency}
+                          size="lg"
+                          color="text-primary"
+                        />
+                      </div>
                     </div>
                   </>
                 )}
