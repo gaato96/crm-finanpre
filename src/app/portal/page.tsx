@@ -30,16 +30,99 @@ import {
   HelpCircle,
   ArrowDownLeft,
   Loader2,
-  FileText,
   Download,
   AlertTriangle,
+  Flame,
+  Info,
+  Car,
+  Building2,
+  Sparkles,
+  CheckCircle,
+  FileText,
 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
 
 export default function PortalHomePage() {
   const { user } = useAuth()
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState<string | null>(null)
+  const [announcements, setAnnouncements] = useState<any[]>([])
+
+  // Simulator dialog state
+  const [showSimulatorDialog, setShowSimulatorDialog] = useState(false)
+  const [valConfig, setValConfig] = useState<ValuationConfig | null>(null)
+  const [simulatorLoading, setSimulatorLoading] = useState(false)
+  const [simulatorSuccess, setSimulatorSuccess] = useState(false)
+  const [simulatorError, setSimulatorError] = useState<string | null>(null)
+
+  // Form states
+  const [valType, setValType] = useState<'vehiculo' | 'inmueble'>('vehiculo')
+  const [valDescription, setValDescription] = useState('')
+  const [valMarketValue, setValMarketValue] = useState('')
+
+  // Vehicle
+  const [vehBrandModel, setVehBrandModel] = useState('')
+  const [vehYear, setVehYear] = useState<number>(new Date().getFullYear())
+  const [vehMileage, setVehMileage] = useState<number>(0)
+  const [vehCrashes, setVehCrashes] = useState<'none' | 'minor' | 'major'>('none')
+  const [vehEngine, setVehEngine] = useState<'good' | 'fair' | 'poor'>('good')
+  const [vehBattery, setVehBattery] = useState<'good' | 'bad'>('good')
+
+  // Property
+  const [propType, setPropType] = useState<'casa' | 'departamento' | 'terreno'>('casa')
+  const [propZone, setPropZone] = useState('')
+  const [propArea, setPropArea] = useState<number>(0)
+  const [propRooms, setPropRooms] = useState<number>(1)
+  const [propBedrooms, setPropBedrooms] = useState<number>(0)
+  const [propBathrooms, setPropBathrooms] = useState<number>(1)
+  const [propPatio, setPropPatio] = useState(false)
+  const [propGarage, setPropGarage] = useState(false)
+
+  // Dynamic valuation calculation
+  useEffect(() => {
+    if (!valConfig) return
+
+    if (valType === 'vehiculo') {
+      const estimatedUSD = calculateVehicleValuation({
+        brandModel: vehBrandModel,
+        year: Number(vehYear) || new Date().getFullYear(),
+        mileage: Number(vehMileage) || 0,
+        crashes: vehCrashes,
+        engineCondition: vehEngine,
+        batteryCondition: vehBattery,
+      }, valConfig)
+
+      setValMarketValue(estimatedUSD.toString())
+      
+      const detailsText = `${vehBrandModel} ${vehYear} (${vehMileage.toLocaleString()} km) · Choques: ${vehCrashes === 'none' ? 'Ninguno' : vehCrashes === 'minor' ? 'Leves' : 'Graves'} · Motor: ${vehEngine === 'good' ? 'Excelente' : vehEngine === 'fair' ? 'Regular' : 'Malo'}`
+      setValDescription(detailsText)
+    } else {
+      const estimatedUSD = calculateRealEstateValuation({
+        propertyType: propType,
+        zone: propZone || 'Otras zonas',
+        areaSqm: Number(propArea) || 0,
+        rooms: Number(propRooms) || 1,
+        bedrooms: Number(propBedrooms) || 0,
+        bathrooms: Number(propBathrooms) || 1,
+        hasPatio: propPatio,
+        hasGarage: propGarage,
+      }, valConfig)
+
+      setValMarketValue(estimatedUSD.toString())
+
+      const detailsText = `${propType.toUpperCase()} en ${propZone || 'Tucumán'} · ${propArea} m² · ${propRooms} amb (${propBedrooms} dorm, ${propBathrooms} baños) ${propGarage ? '· Cochera' : ''} ${propPatio ? '· Patio' : ''}`
+      setValDescription(detailsText)
+    }
+  }, [
+    valType, vehBrandModel, vehYear, vehMileage, vehCrashes, vehEngine, vehBattery,
+    propType, propZone, propArea, propRooms, propBedrooms, propBathrooms, propPatio, propGarage,
+    valConfig
+  ])
 
   // Ticker states for real-time calculation
   const [tickerARS, setTickerARS] = useState({ total: 0, initial: 0, gains: 0, eps: 0 })
@@ -59,9 +142,35 @@ export default function PortalHomePage() {
     setLoading(false)
   }, [user, supabase])
 
+  const fetchAnnouncements = useCallback(async () => {
+    const { data } = await supabase
+      .from('announcements')
+      .select('*')
+      .eq('active', true)
+      .order('created_at', { ascending: false })
+    setAnnouncements(data || [])
+  }, [supabase])
+
+  const fetchValuationConfig = useCallback(async () => {
+    const { data } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'valuation_config')
+      .single()
+    if (data) {
+      setValConfig(data.value as ValuationConfig)
+      const zones = Object.keys((data.value as ValuationConfig).realEstate.zones)
+      if (zones.length > 0) {
+        setPropZone(zones[0])
+      }
+    }
+  }, [supabase])
+
   useEffect(() => {
     fetchContracts()
-  }, [fetchContracts])
+    fetchAnnouncements()
+    fetchValuationConfig()
+  }, [fetchContracts, fetchAnnouncements, fetchValuationConfig])
 
   // Smooth real-time update ticker (runs every 100ms)
   const updateRealtimeBalances = useCallback(() => {
@@ -132,6 +241,60 @@ export default function PortalHomePage() {
     }
   }
 
+  const handleSubmitProposal = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+    setSimulatorLoading(true)
+    setSimulatorError(null)
+    setSimulatorSuccess(false)
+
+    const details = valType === 'vehiculo' ? {
+      brandModel: vehBrandModel,
+      year: vehYear,
+      mileage: vehMileage,
+      crashes: vehCrashes,
+      engineCondition: vehEngine,
+      batteryCondition: vehBattery
+    } : {
+      propertyType: propType,
+      zone: propZone,
+      areaSqm: propArea,
+      rooms: propRooms,
+      bedrooms: propBedrooms,
+      bathrooms: propBathrooms,
+      hasPatio: propPatio,
+      hasGarage: propGarage
+    }
+
+    const { error: saveError } = await supabase
+      .from('assets_valuation')
+      .insert({
+        client_id: user.id,
+        asset_type: valType,
+        description: valDescription,
+        market_value: parseFloat(valMarketValue) || 0,
+        currency: 'USD',
+        status: 'pendiente',
+        valuation_details: details,
+      })
+
+    if (saveError) {
+      setSimulatorError(saveError.message)
+      setSimulatorLoading(false)
+      return
+    }
+
+    setSimulatorSuccess(true)
+    setSimulatorLoading(false)
+    setTimeout(() => {
+      setShowSimulatorDialog(false)
+      setSimulatorSuccess(false)
+      setVehBrandModel('')
+      setVehMileage(0)
+      setPropArea(0)
+    }, 2000)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -159,6 +322,58 @@ export default function PortalHomePage() {
           Monitoreá el rendimiento de tus inversiones en tiempo real
         </p>
       </div>
+
+      {/* Announcements / Alerts */}
+      {announcements.length > 0 && (
+        <div className="space-y-3">
+          {announcements.map((ann) => {
+            const colors = {
+              info: 'bg-blue-500/10 border-blue-500/20 text-blue-300',
+              promo: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300',
+              warning: 'bg-orange-500/10 border-orange-500/20 text-orange-300',
+            }
+            const icon = {
+              info: <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />,
+              promo: <Flame className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5 animate-pulse" />,
+              warning: <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />,
+            }
+
+            return (
+              <Card key={ann.id} className={cn("glass-card border border-border/50", colors[ann.type as 'info' | 'promo' | 'warning'] || colors.info)}>
+                <CardContent className="p-4 flex gap-3 items-start">
+                  {icon[ann.type as 'info' | 'promo' | 'warning'] || icon.info}
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm leading-snug">{ann.title}</h3>
+                    <p className="text-xs opacity-90 leading-relaxed whitespace-pre-line">{ann.content}</p>
+                    <span className="text-[9px] opacity-60 block pt-1">Publicado el {formatDate(ann.created_at)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Simulator Action Card */}
+      <Card className="glass-card border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-transparent relative overflow-hidden">
+        <CardContent className="p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="space-y-1 text-center sm:text-left">
+            <h3 className="font-bold text-sm text-foreground flex items-center justify-center sm:justify-start gap-1.5">
+              <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+              ¿Querés invertir con un auto o inmueble?
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Simulá el valor estimado de tu activo en Tucumán y proponelo como garantía para tu contrato.
+            </p>
+          </div>
+          <Button
+            onClick={() => setShowSimulatorDialog(true)}
+            className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold shrink-0 text-xs h-9 px-4 rounded-lg"
+          >
+            Simular Tasación
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Main Ticker Balance Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -449,6 +664,254 @@ export default function PortalHomePage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Simulator Dialog */}
+      <Dialog open={showSimulatorDialog} onOpenChange={setShowSimulatorDialog}>
+        <DialogContent className="glass-card border-border/50 max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-emerald-400" />
+              Simulador de Tasación y Garantía
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmitProposal} className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Tipo de Activo</Label>
+              <select
+                value={valType}
+                onChange={(e) => setValType(e.target.value as any)}
+                className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+              >
+                <option value="vehiculo">🚗 Vehículo</option>
+                <option value="inmueble">🏢 Inmueble</option>
+              </select>
+            </div>
+
+            {valType === 'vehiculo' ? (
+              // VEHICLE FORM
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Marca y Modelo</Label>
+                  <Input
+                    required
+                    placeholder="Toyota Corolla XEI 2020"
+                    value={vehBrandModel}
+                    onChange={(e) => setVehBrandModel(e.target.value)}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Año de Fabricación</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1950}
+                      max={new Date().getFullYear()}
+                      value={vehYear}
+                      onChange={(e) => setVehYear(parseInt(e.target.value) || new Date().getFullYear())}
+                      className="bg-input/50"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Kilometraje</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={0}
+                      value={vehMileage}
+                      onChange={(e) => setVehMileage(parseInt(e.target.value) || 0)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Choques</Label>
+                    <select
+                      value={vehCrashes}
+                      onChange={(e) => setVehCrashes(e.target.value as any)}
+                      className="w-full h-10 px-2 rounded-md border border-border bg-input/50 text-xs focus:outline-none"
+                    >
+                      <option value="none">Ninguno</option>
+                      <option value="minor">Leve</option>
+                      <option value="major">Grave</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Motor</Label>
+                    <select
+                      value={vehEngine}
+                      onChange={(e) => setVehEngine(e.target.value as any)}
+                      className="w-full h-10 px-2 rounded-md border border-border bg-input/50 text-xs focus:outline-none"
+                    >
+                      <option value="good">Excelente</option>
+                      <option value="fair">Regular</option>
+                      <option value="poor">Falla</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Batería</Label>
+                    <select
+                      value={vehBattery}
+                      onChange={(e) => setVehBattery(e.target.value as any)}
+                      className="w-full h-10 px-2 rounded-md border border-border bg-input/50 text-xs focus:outline-none"
+                    >
+                      <option value="good">Operativa</option>
+                      <option value="bad">Falla</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // REAL ESTATE FORM
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Tipo de Propiedad</Label>
+                    <select
+                      value={propType}
+                      onChange={(e) => setPropType(e.target.value as any)}
+                      className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+                    >
+                      <option value="casa">Casa</option>
+                      <option value="departamento">Departamento</option>
+                      <option value="terreno">Terreno</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Zona en Tucumán</Label>
+                    <select
+                      value={propZone}
+                      onChange={(e) => setPropZone(e.target.value)}
+                      className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+                    >
+                      {valConfig && Object.keys(valConfig.realEstate.zones).map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Superficie ($m^2$)</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1}
+                      value={propArea}
+                      onChange={(e) => setPropArea(parseInt(e.target.value) || 0)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Ambientes totales</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1}
+                      value={propRooms}
+                      onChange={(e) => setPropRooms(parseInt(e.target.value) || 1)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Dormitorios</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={0}
+                      value={propBedrooms}
+                      onChange={(e) => setPropBedrooms(parseInt(e.target.value) || 0)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Baños</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1}
+                      value={propBathrooms}
+                      onChange={(e) => setPropBathrooms(parseInt(e.target.value) || 1)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 p-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propPatio"
+                      type="checkbox"
+                      checked={propPatio}
+                      onChange={(e) => setPropPatio(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propPatio" className="text-xs font-medium cursor-pointer">¿Tiene Patio?</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propGarage"
+                      type="checkbox"
+                      checked={propGarage}
+                      onChange={(e) => setPropGarage(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propGarage" className="text-xs font-medium cursor-pointer">¿Tiene Cochera?</Label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-1 text-center">
+              <span className="text-xs text-muted-foreground block font-semibold">Valor Estimado de Inversión:</span>
+              <span className="text-2xl font-black text-emerald-400 block tracking-tight">
+                {formatCurrency(parseFloat(valMarketValue) || 0, 'USD')}
+              </span>
+              <span className="text-[10px] text-muted-foreground block italic pt-1">
+                La cotización real final puede variar y está sujeta a revisión ocular por un gestor.
+              </span>
+            </div>
+
+            {simulatorError && (
+              <div className="p-3 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+                {simulatorError}
+              </div>
+            )}
+
+            {simulatorSuccess && (
+              <div className="p-3 rounded bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-400 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>¡Propuesta de garantía enviada con éxito! Redirigiendo...</span>
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowSimulatorDialog(false)}
+                className="flex-1 text-xs"
+              >
+                Cerrar
+              </Button>
+              <Button
+                type="submit"
+                disabled={simulatorLoading || simulatorSuccess}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-bold text-xs"
+              >
+                {simulatorLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Proponer Garantía'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

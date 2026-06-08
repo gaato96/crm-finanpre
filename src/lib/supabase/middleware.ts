@@ -38,17 +38,29 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Public routes
-  if (pathname === '/login' || pathname === '/' || pathname.startsWith('/firmar') || pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/manifest') || pathname.startsWith('/sw') || pathname.startsWith('/icons')) {
-    if (user && (pathname === '/login' || pathname === '/')) {
-      // If logged in and on login or root page, check role and redirect
+  // Helper to resolve user role efficiently: JWT metadata first, then DB fallback
+  const getUserRole = async (): Promise<string | null> => {
+    if (!user) return null
+    if (user.user_metadata?.role) {
+      return user.user_metadata.role
+    }
+    try {
       const { data: profile } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)
         .single()
+      return profile?.role ?? null
+    } catch {
+      return null
+    }
+  }
 
-      if (profile?.role === 'admin') {
+  // Public routes
+  if (pathname === '/login' || pathname === '/' || pathname.startsWith('/firmar') || pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/manifest') || pathname.startsWith('/sw') || pathname.startsWith('/icons')) {
+    if (user && (pathname === '/login' || pathname === '/')) {
+      const role = await getUserRole()
+      if (role === 'admin' || role === 'vendedor') {
         return NextResponse.redirect(new URL('/admin', request.url))
       } else {
         return NextResponse.redirect(new URL('/portal', request.url))
@@ -70,20 +82,35 @@ export async function updateSession(request: NextRequest) {
   }
 
   // Check role-based access
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
+  const role = await getUserRole()
 
-  // Admin routes - only accessible by admins
-  if (pathname.startsWith('/admin') && profile?.role !== 'admin') {
-    return NextResponse.redirect(new URL('/portal', request.url))
+  // Admin routes protection
+  if (pathname.startsWith('/admin')) {
+    if (role !== 'admin' && role !== 'vendedor') {
+      return NextResponse.redirect(new URL('/portal', request.url))
+    }
+
+    // Limit seller access under /admin
+    if (role === 'vendedor') {
+      const isAllowedVendedorRoute =
+        pathname === '/admin' ||
+        pathname.startsWith('/admin/clientes') ||
+        pathname.startsWith('/admin/contratos') ||
+        pathname.startsWith('/admin/creditos')
+
+      if (!isAllowedVendedorRoute) {
+        return NextResponse.redirect(new URL('/admin', request.url))
+      }
+    }
   }
 
-  // Portal routes - accessible by investors (and admins can also access)
-  if (pathname.startsWith('/portal') && profile?.role === 'admin') {
-    // Admins can view portal too, but by default redirect to admin
+  // Portal routes protection
+  if (pathname.startsWith('/portal')) {
+    if (role === 'vendedor') {
+      // Vendedores should be in the admin panel
+      return NextResponse.redirect(new URL('/admin', request.url))
+    }
+    // Admins are allowed to see portal if they want, but default redirect to admin is handled elsewhere
   }
 
   return supabaseResponse

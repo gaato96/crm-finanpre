@@ -45,6 +45,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import Link from 'next/link'
+import { adminCreateClient } from './actions'
 
 // ─────────────────────────────────────────────────────────
 // Types
@@ -206,50 +207,21 @@ export default function ClientesPage() {
     setCreating(true)
     setCreateError(null)
 
-    const supabase = createClient()
-
-    // Create auth user via signUp
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    // Create client using the server action to prevent session issues
+    const res = await adminCreateClient({
       email: form.email,
       password: form.password,
-      options: {
-        data: { full_name: form.full_name },
-      },
-    })
-
-    if (authError) {
-      setCreateError(authError.message)
-      setCreating(false)
-      return
-    }
-
-    // Supabase may return a user even if email confirmation is pending
-    const userId = authData.user?.id
-    if (!userId) {
-      setCreateError('No se pudo obtener el ID del usuario creado')
-      setCreating(false)
-      return
-    }
-
-    // Wait a moment for the trigger to create the profile
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    // Upsert profile with all data
-    const { error: profileError } = await supabase.from('profiles').upsert({
-      id: userId,
       full_name: form.full_name,
       dni: form.dni,
-      phone: form.phone || null,
-      email: form.email,
-      address: form.address || null,
-      notes: form.notes || null,
-      role: 'investor',
+      phone: form.phone || undefined,
+      address: form.address || undefined,
       client_type: form.client_type,
       trust_level: form.trust_level,
+      notes: form.notes || undefined,
     })
 
-    if (profileError) {
-      setCreateError(profileError.message)
+    if (res.error) {
+      setCreateError(res.error)
       setCreating(false)
       return
     }

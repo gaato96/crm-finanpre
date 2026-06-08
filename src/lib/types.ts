@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'investor'
+export type UserRole = 'admin' | 'investor' | 'vendedor'
 export type ClientType = 'investor' | 'borrower' | 'both'
 
 export interface Profile {
@@ -29,6 +29,8 @@ export interface AssetValuation {
   market_value: number
   status: AssetStatus
   created_at: string
+  currency?: Currency
+  valuation_details?: any
 }
 
 export type AvailableAssetStatus = 'disponible' | 'reservado' | 'vendido'

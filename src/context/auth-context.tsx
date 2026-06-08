@@ -29,14 +29,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = createClient()
 
     const fetchProfile = async (userId: string) => {
-      try {
-        const { data } = await supabase
+      const fetchPromise = async () => {
+        const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', userId)
           .single()
+        if (error) {
+          console.warn('Profile fetch warning (could be RLS issue):', error.message)
+          throw error
+        }
+        return data
+      }
+
+      try {
+        const data = await Promise.race([
+          fetchPromise(),
+          new Promise<any>((_, reject) =>
+            setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+          )
+        ])
         setProfile(data)
-      } catch {
+      } catch (err) {
+        console.error('Error or timeout fetching profile:', err)
         setProfile(null)
       }
     }

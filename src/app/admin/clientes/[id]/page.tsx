@@ -17,9 +17,12 @@ import { formatCurrency, formatDate, daysRemaining, contractProgress, calculateA
 import {
   ArrowLeft, User, Phone, IdCard, Calendar, TrendingUp, Building2, CreditCard,
   FileText, CheckCircle2, AlertTriangle, Clock, RefreshCw, Star, Key, Copy, ExternalLink, Check, Loader2,
+  Car, Sparkles, Plus, AlertCircle,
 } from 'lucide-react'
 import { StarRating } from '@/components/StarRating'
 import { adminResetPassword } from './actions'
+import { Textarea } from '@/components/ui/textarea'
+import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
 
 export default function ClientDetailPage() {
   const params = useParams()
@@ -41,18 +44,100 @@ export default function ClientDetailPage() {
 
   const supabase = createClient()
 
+  // Asset valuation dialog state
+  const [showValuationDialog, setShowValuationDialog] = useState(false)
+  const [valConfig, setValConfig] = useState<ValuationConfig | null>(null)
+  const [valuationLoading, setValuationLoading] = useState(false)
+  const [valuationError, setValuationError] = useState<string | null>(null)
+
+  // Valuation Form State
+  const [valType, setValType] = useState<'vehiculo' | 'inmueble'>('vehiculo')
+  const [valDescription, setValDescription] = useState('')
+  const [valMarketValue, setValMarketValue] = useState('')
+  const [valCurrency, setValCurrency] = useState<'ARS' | 'USD'>('USD')
+
+  // Vehicle subform
+  const [vehBrandModel, setVehBrandModel] = useState('')
+  const [vehYear, setVehYear] = useState<number>(new Date().getFullYear())
+  const [vehMileage, setVehMileage] = useState<number>(0)
+  const [vehCrashes, setVehCrashes] = useState<'none' | 'minor' | 'major'>('none')
+  const [vehEngine, setVehEngine] = useState<'good' | 'fair' | 'poor'>('good')
+  const [vehBattery, setVehBattery] = useState<'good' | 'bad'>('good')
+
+  // Property subform
+  const [propType, setPropType] = useState<'casa' | 'departamento' | 'terreno'>('casa')
+  const [propZone, setPropZone] = useState('')
+  const [propArea, setPropArea] = useState<number>(0)
+  const [propRooms, setPropRooms] = useState<number>(1)
+  const [propBedrooms, setPropBedrooms] = useState<number>(0)
+  const [propBathrooms, setPropBathrooms] = useState<number>(1)
+  const [propPatio, setPropPatio] = useState(false)
+  const [propGarage, setPropGarage] = useState(false)
+
+  // Dynamic valuation calculation
+  useEffect(() => {
+    if (!valConfig) return
+
+    if (valType === 'vehiculo') {
+      const estimatedUSD = calculateVehicleValuation({
+        brandModel: vehBrandModel,
+        year: Number(vehYear) || new Date().getFullYear(),
+        mileage: Number(vehMileage) || 0,
+        crashes: vehCrashes,
+        engineCondition: vehEngine,
+        batteryCondition: vehBattery,
+      }, valConfig)
+
+      setValMarketValue(estimatedUSD.toString())
+      setValCurrency('USD')
+      
+      const detailsText = `${vehBrandModel} ${vehYear} (${vehMileage.toLocaleString()} km) · Choques: ${vehCrashes === 'none' ? 'Ninguno' : vehCrashes === 'minor' ? 'Leves' : 'Graves'} · Motor: ${vehEngine === 'good' ? 'Excelente' : vehEngine === 'fair' ? 'Regular' : 'Malo'}`
+      setValDescription(detailsText)
+    } else {
+      const estimatedUSD = calculateRealEstateValuation({
+        propertyType: propType,
+        zone: propZone || 'Otras zonas',
+        areaSqm: Number(propArea) || 0,
+        rooms: Number(propRooms) || 1,
+        bedrooms: Number(propBedrooms) || 0,
+        bathrooms: Number(propBathrooms) || 1,
+        hasPatio: propPatio,
+        hasGarage: propGarage,
+      }, valConfig)
+
+      setValMarketValue(estimatedUSD.toString())
+      setValCurrency('USD')
+
+      const detailsText = `${propType.toUpperCase()} en ${propZone || 'Tucumán'} · ${propArea} m² · ${propRooms} amb (${propBedrooms} dorm, ${propBathrooms} baños) ${propGarage ? '· Cochera' : ''} ${propPatio ? '· Patio' : ''}`
+      setValDescription(detailsText)
+    }
+  }, [
+    valType, vehBrandModel, vehYear, vehMileage, vehCrashes, vehEngine, vehBattery,
+    propType, propZone, propArea, propRooms, propBedrooms, propBathrooms, propPatio, propGarage,
+    valConfig
+  ])
+
   const fetchData = async () => {
-    const [profileRes, contractsRes, assetsRes, creditsRes] = await Promise.all([
+    const [profileRes, contractsRes, assetsRes, creditsRes, configRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', clientId).single(),
       supabase.from('contracts').select('*, assets_valuation(*)').eq('client_id', clientId).order('created_at', { ascending: false }),
       supabase.from('assets_valuation').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
       supabase.from('credits').select('*, credit_installments(*)').eq('client_id', clientId).order('created_at', { ascending: false }),
+      supabase.from('system_settings').select('value').eq('key', 'valuation_config').single(),
     ])
 
     setProfile(profileRes.data)
     setContracts(contractsRes.data || [])
     setAssets(assetsRes.data || [])
     setCredits((creditsRes.data || []) as (Credit & { credit_installments: CreditInstallment[] })[])
+    
+    if (configRes.data) {
+      setValConfig(configRes.data.value as ValuationConfig)
+      const zones = Object.keys((configRes.data.value as ValuationConfig).realEstate.zones)
+      if (zones.length > 0) {
+        setPropZone(zones[0])
+      }
+    }
     setLoading(false)
   }
 
@@ -107,6 +192,60 @@ export default function ClientDetailPage() {
       setNewPassword('')
     }
     setResetLoading(false)
+  }
+
+  const handleCreateValuation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setValuationLoading(true)
+    setValuationError(null)
+
+    const details = valType === 'vehiculo' ? {
+      brandModel: vehBrandModel,
+      year: vehYear,
+      mileage: vehMileage,
+      crashes: vehCrashes,
+      engineCondition: vehEngine,
+      batteryCondition: vehBattery
+    } : {
+      propertyType: propType,
+      zone: propZone,
+      areaSqm: propArea,
+      rooms: propRooms,
+      bedrooms: propBedrooms,
+      bathrooms: propBathrooms,
+      hasPatio: propPatio,
+      hasGarage: propGarage
+    }
+
+    const { error: saveError } = await supabase
+      .from('assets_valuation')
+      .insert({
+        client_id: clientId,
+        asset_type: valType,
+        description: valDescription,
+        market_value: parseFloat(valMarketValue) || 0,
+        currency: valCurrency,
+        status: 'tasado',
+        valuation_details: details,
+      })
+
+    if (saveError) {
+      setValuationError(saveError.message)
+      setValuationLoading(false)
+      return
+    }
+
+    setShowValuationDialog(false)
+    setVehBrandModel('')
+    setVehMileage(0)
+    setPropArea(0)
+    setPropRooms(1)
+    setPropBedrooms(0)
+    setPropBathrooms(1)
+    setPropPatio(false)
+    setPropGarage(false)
+    setValuationLoading(false)
+    fetchData()
   }
 
   const copyToClipboard = (text: string, id: string) => {
@@ -411,6 +550,21 @@ export default function ClientDetailPage() {
 
             {/* Activos Tab */}
             <TabsContent value="activos" className="space-y-4">
+              <div className="flex justify-between items-center bg-accent/20 p-3 rounded-xl border border-border/30">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Garantías y Tasaciones</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Bienes muebles e inmuebles tasados para el inversor</p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => setShowValuationDialog(true)}
+                  className="bg-primary/20 text-primary hover:bg-primary/30 font-semibold"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  Valuar Activo
+                </Button>
+              </div>
+
               {assets.length === 0 ? (
                 <Card className="glass-card">
                   <CardContent className="py-12 text-center text-muted-foreground">
@@ -432,12 +586,17 @@ export default function ClientDetailPage() {
                     <TableBody>
                       {assets.map((asset) => (
                         <TableRow key={asset.id} className="border-border/30">
-                          <TableCell className="capitalize text-sm">{asset.asset_type}</TableCell>
+                          <TableCell className="capitalize text-sm font-semibold flex items-center gap-1.5 pt-4">
+                            {asset.asset_type === 'vehiculo' ? <Car className="w-4 h-4 text-orange-400" /> : <Building2 className="w-4 h-4 text-indigo-400" />}
+                            {asset.asset_type}
+                          </TableCell>
                           <TableCell className="text-sm">{asset.description}</TableCell>
-                          <TableCell className="font-medium text-sm">{formatCurrency(Number(asset.market_value))}</TableCell>
+                          <TableCell className="font-bold text-sm text-foreground">
+                            {formatCurrency(Number(asset.market_value), (asset.currency as any) || 'USD')}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline" className={`text-xs ${statusColors[asset.status] || ''}`}>
-                              {asset.status}
+                              {asset.status.toUpperCase()}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -571,6 +730,265 @@ export default function ClientDetailPage() {
                 className="flex-1 bg-red-500 hover:bg-red-600 text-white font-semibold"
               >
                 {resetLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Confirmar'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Valuar Activo (Nueva Tasación) */}
+      <Dialog open={showValuationDialog} onOpenChange={setShowValuationDialog}>
+        <DialogContent className="glass-card border-border/50 max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-emerald-400" />
+              Valuar Activo del Cliente
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateValuation} className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Tipo de Activo</Label>
+              <select
+                value={valType}
+                onChange={(e) => setValType(e.target.value as any)}
+                className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+              >
+                <option value="vehiculo">🚗 Vehículo</option>
+                <option value="inmueble">🏢 Inmueble</option>
+              </select>
+            </div>
+
+            {valType === 'vehiculo' ? (
+              // VEHICLE FORM
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Marca y Modelo</Label>
+                  <Input
+                    required
+                    placeholder="Toyota Hilux 2.8 SRX"
+                    value={vehBrandModel}
+                    onChange={(e) => setVehBrandModel(e.target.value)}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Año de Fabricación</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1950}
+                      max={new Date().getFullYear()}
+                      value={vehYear}
+                      onChange={(e) => setVehYear(parseInt(e.target.value) || new Date().getFullYear())}
+                      className="bg-input/50"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Kilometraje</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={0}
+                      value={vehMileage}
+                      onChange={(e) => setVehMileage(parseInt(e.target.value) || 0)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Choques</Label>
+                    <select
+                      value={vehCrashes}
+                      onChange={(e) => setVehCrashes(e.target.value as any)}
+                      className="w-full h-10 px-2 rounded-md border border-border bg-input/50 text-xs focus:outline-none"
+                    >
+                      <option value="none">Ninguno</option>
+                      <option value="minor">Leve</option>
+                      <option value="major">Grave / Chasis</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Motor</Label>
+                    <select
+                      value={vehEngine}
+                      onChange={(e) => setVehEngine(e.target.value as any)}
+                      className="w-full h-10 px-2 rounded-md border border-border bg-input/50 text-xs focus:outline-none"
+                    >
+                      <option value="good">Excelente</option>
+                      <option value="fair">Regular / Ruidos</option>
+                      <option value="poor">Falla / Requiere Rep.</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Batería</Label>
+                    <select
+                      value={vehBattery}
+                      onChange={(e) => setVehBattery(e.target.value as any)}
+                      className="w-full h-10 px-2 rounded-md border border-border bg-input/50 text-xs focus:outline-none"
+                    >
+                      <option value="good">Operativa</option>
+                      <option value="bad">Requiere Cambio</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // REAL ESTATE FORM
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Tipo de Propiedad</Label>
+                    <select
+                      value={propType}
+                      onChange={(e) => setPropType(e.target.value as any)}
+                      className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+                    >
+                      <option value="casa">Casa</option>
+                      <option value="departamento">Departamento</option>
+                      <option value="terreno">Terreno</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Zona en Tucumán</Label>
+                    <select
+                      value={propZone}
+                      onChange={(e) => setPropZone(e.target.value)}
+                      className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+                    >
+                      {valConfig && Object.keys(valConfig.realEstate.zones).map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Superficie ($m^2$)</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1}
+                      value={propArea}
+                      onChange={(e) => setPropArea(parseInt(e.target.value) || 0)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Ambientes totales</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1}
+                      value={propRooms}
+                      onChange={(e) => setPropRooms(parseInt(e.target.value) || 1)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Dormitorios</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={0}
+                      value={propBedrooms}
+                      onChange={(e) => setPropBedrooms(parseInt(e.target.value) || 0)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Baños</Label>
+                    <Input
+                      type="number"
+                      required
+                      min={1}
+                      value={propBathrooms}
+                      onChange={(e) => setPropBathrooms(parseInt(e.target.value) || 1)}
+                      className="bg-input/50"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 p-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propPatio"
+                      type="checkbox"
+                      checked={propPatio}
+                      onChange={(e) => setPropPatio(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propPatio" className="text-xs font-medium cursor-pointer">¿Tiene Patio?</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propGarage"
+                      type="checkbox"
+                      checked={propGarage}
+                      onChange={(e) => setPropGarage(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propGarage" className="text-xs font-medium cursor-pointer">¿Tiene Cochera?</Label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground font-semibold">Valor Tasado Estimado (USD):</span>
+                <span className="text-xl font-extrabold text-emerald-400">
+                  {formatCurrency(parseFloat(valMarketValue) || 0, 'USD')}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="overrideVal" className="text-[10px] text-muted-foreground uppercase">Ajuste de Valor Manual (USD)</Label>
+                <Input
+                  id="overrideVal"
+                  type="number"
+                  value={valMarketValue}
+                  onChange={(e) => setValMarketValue(e.target.value)}
+                  className="h-8 text-xs bg-input/50 font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="overrideDesc" className="text-[10px] text-muted-foreground uppercase">Ficha / Descripción Generada</Label>
+                <Textarea
+                  id="overrideDesc"
+                  value={valDescription}
+                  onChange={(e) => setValDescription(e.target.value)}
+                  className="text-xs bg-input/50 min-h-[44px] p-2 resize-none"
+                />
+              </div>
+            </div>
+
+            {valuationError && (
+              <div className="p-3 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+                {valuationError}
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowValuationDialog(false)}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={valuationLoading}
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold"
+              >
+                {valuationLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Guardar Tasación'}
               </Button>
             </DialogFooter>
           </form>
