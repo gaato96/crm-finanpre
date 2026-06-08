@@ -49,7 +49,10 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
-type ContractWithProfile = Contract & { profiles: { full_name: string; dni: string; id: string } }
+type ContractWithProfile = Contract & { 
+  profiles: { full_name: string; dni: string; id: string }
+  assets_valuation?: { description: string; asset_type: string } | null
+}
 type FilterKey = 'todas' | 'activas' | 'borradores' | 'enviados' | 'pendiente_fondos' | 'retiros' | 'vencidas'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +90,8 @@ export default function InversionesPage() {
   const [rate, setRate] = useState('')
   const [startDate, setStartDate] = useState(todayISO())
   const [activeTab, setActiveTab] = useState('nueva')
+  const [clientAssets, setClientAssets] = useState<any[]>([])
+  const [selectedAssetId, setSelectedAssetId] = useState<string>('')
 
   // ── contract dialog ───────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -117,7 +122,7 @@ export default function InversionesPage() {
     setLoadingContracts(true)
     const { data } = await supabase
       .from('contracts')
-      .select('*, profiles(full_name, dni, id)')
+      .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
       .order('created_at', { ascending: false })
     setContracts((data || []) as ContractWithProfile[])
     setLoadingContracts(false)
@@ -155,6 +160,31 @@ export default function InversionesPage() {
       }
     }
   }, [clients])
+
+  useEffect(() => {
+    if (!selectedClientId) {
+      setClientAssets([])
+      setSelectedAssetId('')
+      return
+    }
+
+    const fetchClientAssets = async () => {
+      const { data, error } = await supabase
+        .from('assets_valuation')
+        .select('*')
+        .eq('client_id', selectedClientId)
+        .eq('status', 'tasado')
+        .order('created_at', { ascending: false })
+      if (!error && data) {
+        setClientAssets(data)
+      } else {
+        setClientAssets([])
+      }
+    }
+
+    fetchClientAssets()
+    setSelectedAssetId('')
+  }, [selectedClientId, supabase])
 
   // ── projection table ──────────────────────────────────────────────────────
   const capitalNum = parseFloat(capital) || 0
@@ -194,6 +224,7 @@ export default function InversionesPage() {
       .from('contracts')
       .insert({
         client_id: selectedClientId,
+        asset_id: selectedAssetId || null,
         initial_capital: capitalNum,
         current_capital: capitalNum,
         currency,
@@ -203,7 +234,7 @@ export default function InversionesPage() {
         status: 'borrador',
         template_id: selectedTemplateId || null,
       })
-      .select('*, profiles(full_name, dni, id)')
+      .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
       .single()
     setSubmitting(false)
     if (!error && contract) {
@@ -224,6 +255,7 @@ export default function InversionesPage() {
         .from('contracts')
         .insert({
           client_id: selectedClientId,
+          asset_id: selectedAssetId || null,
           initial_capital: capitalNum,
           current_capital: capitalNum,
           currency,
@@ -233,7 +265,7 @@ export default function InversionesPage() {
           status: 'enviado',
           template_id: selectedTemplateId || null,
         })
-        .select('*, profiles(full_name, dni, id)')
+        .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
         .single()
       if (!error && inserted) {
         contractData = inserted as ContractWithProfile
@@ -243,7 +275,7 @@ export default function InversionesPage() {
         .from('contracts')
         .update({ status: 'enviado' })
         .eq('id', contractData.id)
-        .select('*, profiles(full_name, dni, id)')
+        .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
         .single()
       if (!error && updated) contractData = updated as ContractWithProfile
     }
@@ -288,6 +320,38 @@ export default function InversionesPage() {
         event_type: 'funds_confirmed',
         metadata: { confirmed_at: new Date().toISOString() },
       })
+
+      // Add asset to assets_available if contract has asset_id
+      const contractData = contracts.find(c => c.id === contractId)
+      if (contractData?.asset_id) {
+        const { data: assetVal } = await supabase
+          .from('assets_valuation')
+          .select('*')
+          .eq('id', contractData.asset_id)
+          .single()
+
+        if (assetVal) {
+          const { data: existingAvail } = await supabase
+            .from('assets_available')
+            .select('id')
+            .eq('asset_valuation_id', contractData.asset_id)
+            .maybeSingle()
+
+          if (!existingAvail) {
+            const capitalizedType = assetVal.asset_type.charAt(0).toUpperCase() + assetVal.asset_type.slice(1)
+            await supabase.from('assets_available').insert({
+              asset_valuation_id: contractData.asset_id,
+              title: `${capitalizedType} - ${assetVal.description}`,
+              description: `Recibido como forma de pago / inversión de ${contractData.profiles?.full_name || 'cliente'}.`,
+              asset_type: assetVal.asset_type,
+              listed_value: assetVal.market_value,
+              currency: assetVal.currency || 'USD',
+              status: 'disponible'
+            })
+          }
+        }
+      }
+
       setWithdrawalSuccess(contractId)
       await fetchContracts()
     }
@@ -464,6 +528,46 @@ export default function InversionesPage() {
                     </div>
                   </div>
 
+                  {/* Activo del Cliente */}
+                  {selectedClientId && (
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                        Recibir Activo como Inversión (Opcional)
+                      </Label>
+                      <select
+                        value={selectedAssetId}
+                        onChange={(e) => {
+                          const assetId = e.target.value
+                          setSelectedAssetId(assetId)
+                          if (assetId) {
+                            const asset = clientAssets.find((a) => a.id === assetId)
+                            if (asset) {
+                              setCapital(asset.market_value.toString())
+                              if (asset.currency === 'ARS' || asset.currency === 'USD') {
+                                setCurrency(asset.currency)
+                              }
+                            }
+                          } else {
+                            setCapital('')
+                          }
+                        }}
+                        className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all text-foreground"
+                      >
+                        <option value="">Ninguno (Aporte en Efectivo / Transferencia)</option>
+                        {clientAssets.map((asset) => (
+                          <option key={asset.id} value={asset.id}>
+                            {asset.asset_type.charAt(0).toUpperCase() + asset.asset_type.slice(1)}: {asset.description} ({formatCurrency(asset.market_value, asset.currency || 'USD')})
+                          </option>
+                        ))}
+                      </select>
+                      {selectedAssetId && (
+                        <p className="text-xs text-blue-400 font-medium mt-1">
+                          Se utilizará el valor tasado del activo ({formatCurrency(parseFloat(capital) || 0, currency)}) como capital inicial del contrato. Al firmarse el contrato, este activo se agregará automáticamente a Activos Disponibles.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Moneda */}
                   <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
@@ -472,23 +576,25 @@ export default function InversionesPage() {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setCurrency('ARS')}
+                        onClick={() => !selectedAssetId && setCurrency('ARS')}
+                        disabled={!!selectedAssetId}
                         className={`flex-1 h-10 rounded-md border text-sm font-semibold transition-all ${
                           currency === 'ARS'
                             ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                             : 'border-border bg-input/30 text-muted-foreground hover:bg-accent/50'
-                        }`}
+                        } ${selectedAssetId ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
                         $ ARS — Pesos
                       </button>
                       <button
                         type="button"
-                        onClick={() => setCurrency('USD')}
+                        onClick={() => !selectedAssetId && setCurrency('USD')}
+                        disabled={!!selectedAssetId}
                         className={`flex-1 h-10 rounded-md border text-sm font-semibold transition-all ${
                           currency === 'USD'
                             ? 'bg-blue-500/15 border-blue-500/40 text-blue-400'
                             : 'border-border bg-input/30 text-muted-foreground hover:bg-accent/50'
-                        }`}
+                        } ${selectedAssetId ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
                         $ USD — Dólares
                       </button>
@@ -509,7 +615,10 @@ export default function InversionesPage() {
                         value={capital}
                         onChange={(e) => setCapital(e.target.value)}
                         placeholder="0.00"
-                        className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        readOnly={!!selectedAssetId}
+                        className={`w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                          selectedAssetId ? 'opacity-70 cursor-not-allowed bg-accent/20' : ''
+                        }`}
                       />
                     </div>
                     <div className="space-y-2">
@@ -787,13 +896,18 @@ export default function InversionesPage() {
                             >
                               {/* Cliente */}
                               <td className="px-4 py-3">
-                                <div>
+                                <div className="space-y-1">
                                   <p className="font-medium text-foreground">
                                     {contract.profiles?.full_name}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
                                     DNI {contract.profiles?.dni}
                                   </p>
+                                  {contract.assets_valuation && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-medium">
+                                      📦 Activo: {contract.assets_valuation.description}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
 

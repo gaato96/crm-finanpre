@@ -106,6 +106,43 @@ export default function ContratosPage() {
         event_type: 'funds_confirmed',
         metadata: { confirmed_at: new Date().toISOString() },
       })
+
+      // Check if we need to add the asset to assets_available
+      const { data: contractData } = await supabase
+        .from('contracts')
+        .select('*, profiles(full_name)')
+        .eq('id', contractId)
+        .single()
+
+      if (contractData?.asset_id) {
+        const { data: assetVal } = await supabase
+          .from('assets_valuation')
+          .select('*')
+          .eq('id', contractData.asset_id)
+          .single()
+
+        if (assetVal) {
+          const { data: existingAvail } = await supabase
+            .from('assets_available')
+            .select('id')
+            .eq('asset_valuation_id', contractData.asset_id)
+            .maybeSingle()
+
+          if (!existingAvail) {
+            const capitalizedType = assetVal.asset_type.charAt(0).toUpperCase() + assetVal.asset_type.slice(1)
+            await supabase.from('assets_available').insert({
+              asset_valuation_id: contractData.asset_id,
+              title: `${capitalizedType} - ${assetVal.description}`,
+              description: `Recibido como forma de pago / inversión de ${contractData.profiles?.full_name || 'cliente'}.`,
+              asset_type: assetVal.asset_type,
+              listed_value: assetVal.market_value,
+              currency: assetVal.currency || 'USD',
+              status: 'disponible'
+            })
+          }
+        }
+      }
+
       await fetchData()
     } else {
       alert('Error al confirmar pago: ' + error.message)

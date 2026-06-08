@@ -314,6 +314,37 @@ export default function PublicSigningPage() {
 
       if (updateErr) throw updateErr
 
+      // 5.5 If the contract is linked to an asset, add it to assets_available
+      if (contract.asset_id) {
+        const { data: assetVal } = await supabase
+          .from('assets_valuation')
+          .select('*')
+          .eq('id', contract.asset_id)
+          .single()
+
+        if (assetVal) {
+          // Check if it already exists in assets_available to avoid duplicates
+          const { data: existingAvail } = await supabase
+            .from('assets_available')
+            .select('id')
+            .eq('asset_valuation_id', contract.asset_id)
+            .maybeSingle()
+
+          if (!existingAvail) {
+            const capitalizedType = assetVal.asset_type.charAt(0).toUpperCase() + assetVal.asset_type.slice(1)
+            await supabase.from('assets_available').insert({
+              asset_valuation_id: contract.asset_id,
+              title: `${capitalizedType} - ${assetVal.description}`,
+              description: `Recibido como forma de pago / inversión de ${contract.profiles?.full_name || 'cliente'}.`,
+              asset_type: assetVal.asset_type,
+              listed_value: assetVal.market_value,
+              currency: assetVal.currency || 'USD',
+              status: 'disponible'
+            })
+          }
+        }
+      }
+
       // 6. Log contract signature event
       await supabase.from('contract_events').insert({
         contract_id: contract.id,

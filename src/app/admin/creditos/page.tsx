@@ -9,12 +9,16 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import type { Profile, Credit, CreditInstallment, ContractTemplate } from '@/lib/types'
+import type { Profile, Credit, CreditInstallment, ContractTemplate, Contract, AssetValuation } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/helpers'
 import { CreditCard, Plus, AlertTriangle, CheckCircle2, Clock, Loader2, Calendar } from 'lucide-react'
 
 export default function CreditosPage() {
-  const [credits, setCredits] = useState<(Credit & { profiles: { full_name: string }; credit_installments: CreditInstallment[] })[]>([])
+  const [credits, setCredits] = useState<(Credit & { 
+    profiles: { full_name: string }; 
+    credit_installments: CreditInstallment[];
+    contracts?: (Contract & { assets_valuation?: AssetValuation | null }) | null;
+  })[]>([])
   const [clients, setClients] = useState<Profile[]>([])
   const [templates, setTemplates] = useState<ContractTemplate[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,11 +35,17 @@ export default function CreditosPage() {
   const [selectedCredit, setSelectedCredit] = useState<typeof credits[0] | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // Asset Financing states
+  const [availableAssets, setAvailableAssets] = useState<any[]>([])
+  const [selectedAvailableAssetId, setSelectedAvailableAssetId] = useState<string>('')
+  const [formCurrency, setFormCurrency] = useState<'ARS' | 'USD'>('ARS')
+
   const fetchData = async () => {
-    const [creditsRes, clientsRes, templatesRes] = await Promise.all([
-      supabase.from('credits').select('*, profiles(full_name), credit_installments(*)').order('created_at', { ascending: false }),
+    const [creditsRes, clientsRes, templatesRes, assetsRes] = await Promise.all([
+      supabase.from('credits').select('*, profiles(full_name), credit_installments(*), contracts(*, assets_valuation(*))').order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').eq('role', 'investor').order('full_name'),
-      supabase.from('contract_templates').select('*').eq('type', 'credito').eq('is_active', true).order('created_at', { ascending: false })
+      supabase.from('contract_templates').select('*').eq('type', 'credito').eq('is_active', true).order('created_at', { ascending: false }),
+      supabase.from('assets_available').select('*, asset_valuation:asset_valuation_id(*)').eq('status', 'disponible').order('created_at', { ascending: false })
     ])
     setCredits((creditsRes.data || []) as typeof credits)
     setClients(clientsRes.data || [])
@@ -44,6 +54,7 @@ export default function CreditosPage() {
     if (tmpls.length > 0) {
       setSelectedTemplateId(tmpls[0].id)
     }
+    setAvailableAssets(assetsRes.data || [])
     setLoading(false)
   }
 
@@ -80,11 +91,19 @@ export default function CreditosPage() {
     const endDate = new Date(today)
     endDate.setMonth(endDate.getMonth() + numInst)
 
+    // Check if we have an asset associated
+    let assetValuationId = null
+    const selectedAsset = availableAssets.find(a => a.id === selectedAvailableAssetId)
+    if (selectedAsset) {
+      assetValuationId = selectedAsset.asset_valuation_id
+    }
+
     const { data: contract } = await supabase.from('contracts').insert({
       client_id: formClient,
+      asset_id: assetValuationId,
       initial_capital: total,
       current_capital: total,
-      currency: 'ARS',
+      currency: formCurrency,
       monthly_rate: rate,
       start_date: today.toISOString().split('T')[0],
       end_date: endDate.toISOString().split('T')[0],
@@ -103,6 +122,7 @@ export default function CreditosPage() {
       status: 'vigente',
       contract_id: contractId,
       daily_late_interest_rate: lateRate,
+      currency: formCurrency,
     }).select().single()
 
     if (credit) {
@@ -119,16 +139,32 @@ export default function CreditosPage() {
         }
       })
       await supabase.from('credit_installments').insert(installments)
+
+      // If we linked an available asset, we should update its status to 'vendido'
+      if (selectedAvailableAssetId) {
+        await supabase
+          .from('assets_available')
+          .update({ status: 'vendido' })
+          .eq('id', selectedAvailableAssetId)
+
+        // Also update the asset status in assets_valuation to 'financiado'
+        if (assetValuationId) {
+          await supabase
+            .from('assets_valuation')
+            .update({ status: 'financiado' })
+            .eq('id', assetValuationId)
+        }
+      }
     }
-    setDialogOpen(false); setFormClient(''); setFormAmount(''); setFormRate(''); setFormInstallments(''); setFormLateRate('0.5')
+    setDialogOpen(false); setFormClient(''); setFormAmount(''); setFormRate(''); setFormInstallments(''); setFormLateRate('0.5'); setSelectedAvailableAssetId('')
     setSubmitting(false); fetchData()
   }
 
-  const markPaid = async (instId: string, amount: number, lateInterest: number) => {
+  const markPaid = async (instId: string, amount: number, lateInterest: number, currency: 'ARS' | 'USD' = 'ARS') => {
     const total = amount + lateInterest
-    let confirmMsg = `¿Confirmar cobro de esta cuota por ${formatCurrency(amount)}?`
+    let confirmMsg = `¿Confirmar cobro de esta cuota por ${formatCurrency(amount, currency)}?`
     if (lateInterest > 0) {
-      confirmMsg = `¿Confirmar cobro de esta cuota por un total de ${formatCurrency(total)}? (Incluye ${formatCurrency(lateInterest)} por mora diaria acumulada)`
+      confirmMsg = `¿Confirmar cobro de esta cuota por un total de ${formatCurrency(total, currency)}? (Incluye ${formatCurrency(lateInterest, currency)} por mora diaria acumulada)`
     }
     if (!confirm(confirmMsg)) return
 
@@ -164,6 +200,7 @@ export default function CreditosPage() {
         daysLate,
         calculatedLateInterest,
         isOverdue,
+        currency: c.currency || 'ARS',
       }
     })
   )
@@ -206,16 +243,79 @@ export default function CreditosPage() {
                   </select>
                 </div>
               </div>
-              <div className="space-y-2"><Label>Capital Prestado</Label><Input type="number" step="0.01" min="1" value={formAmount} onChange={e => setFormAmount(e.target.value)} required className="bg-input/50" /></div>
+              {/* Financiar Activo */}
+              <div className="space-y-2">
+                <Label>Financiar Activo Disponible (Opcional)</Label>
+                <select
+                  value={selectedAvailableAssetId}
+                  onChange={e => {
+                    const id = e.target.value
+                    setSelectedAvailableAssetId(id)
+                    if (id) {
+                      const asset = availableAssets.find(a => a.id === id)
+                      if (asset) {
+                        setFormAmount(asset.listed_value.toString())
+                        if (asset.currency === 'ARS' || asset.currency === 'USD') {
+                          setFormCurrency(asset.currency)
+                        }
+                      }
+                    } else {
+                      setFormAmount('')
+                    }
+                  }}
+                  className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+                >
+                  <option value="">Ninguno (Préstamo de dinero estándar)</option>
+                  {availableAssets.map(asset => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.title} ({formatCurrency(asset.listed_value, asset.currency)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Moneda</Label>
+                  <select
+                    value={formCurrency}
+                    onChange={e => setFormCurrency(e.target.value as 'ARS' | 'USD')}
+                    disabled={!!selectedAvailableAssetId}
+                    className={`w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground ${
+                      selectedAvailableAssetId ? 'opacity-70 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <option value="ARS">ARS ($)</option>
+                    <option value="USD">USD (US$)</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Capital Prestado</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    value={formAmount}
+                    onChange={e => setFormAmount(e.target.value)}
+                    required
+                    readOnly={!!selectedAvailableAssetId}
+                    className={`bg-input/50 ${
+                      selectedAvailableAssetId ? 'opacity-70 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2"><Label>Tasa (%)</Label><Input type="number" step="0.01" min="0.1" value={formRate} onChange={e => setFormRate(e.target.value)} required className="bg-input/50" /></div>
                 <div className="space-y-2"><Label>Nº Cuotas</Label><Input type="number" min="1" max="60" value={formInstallments} onChange={e => setFormInstallments(e.target.value)} required className="bg-input/50" /></div>
                 <div className="space-y-2"><Label>Mora Diaria (%)</Label><Input type="number" step="0.01" min="0" value={formLateRate} onChange={e => setFormLateRate(e.target.value)} required className="bg-input/50" /></div>
               </div>
+
               {formAmount && formRate && formInstallments && (
                 <div className="p-3 rounded-lg bg-primary/5 border border-primary/10">
                   <p className="text-xs text-muted-foreground">Cuota estimada</p>
-                  <p className="text-lg font-bold text-primary">{formatCurrency(Math.round((parseFloat(formAmount) * (1 + parseFloat(formRate) / 100)) / parseInt(formInstallments) * 100) / 100)}</p>
+                  <p className="text-lg font-bold text-primary">{formatCurrency(Math.round((parseFloat(formAmount) * (1 + parseFloat(formRate) / 100)) / parseInt(formInstallments) * 100) / 100, formCurrency)}</p>
                 </div>
               )}
               <Button type="submit" className="w-full bg-gradient-to-r from-emerald-accent to-emerald-glow text-deep-blue font-semibold" disabled={submitting}>
@@ -244,12 +344,12 @@ export default function CreditosPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{inst.clientName}</p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="text-xs text-muted-foreground">Cuota #{inst.installment_number} · {formatCurrency(Number(inst.amount))}</span>
+                        <span className="text-xs text-muted-foreground">Cuota #{inst.installment_number} · {formatCurrency(Number(inst.amount), inst.currency)}</span>
                         {inst.isOverdue && (
-                          <span className="text-[10px] text-red-400 font-bold">+{inst.daysLate}d demorado ({formatCurrency(inst.calculatedLateInterest)} mora)</span>
+                          <span className="text-[10px] text-red-400 font-bold">+{inst.daysLate}d demorado ({formatCurrency(inst.calculatedLateInterest, inst.currency)} mora)</span>
                         )}
                         {inst.status === 'pagado' && inst.late_interest > 0 && (
-                          <span className="text-[10px] text-emerald-400 font-medium">mora cobrada: {formatCurrency(inst.late_interest)}</span>
+                          <span className="text-[10px] text-emerald-400 font-medium">mora cobrada: {formatCurrency(inst.late_interest, inst.currency)}</span>
                         )}
                       </div>
                     </div>
@@ -257,9 +357,9 @@ export default function CreditosPage() {
                       <Button
                         size="sm"
                         className="bg-red-500 hover:bg-red-600 text-white font-semibold text-xs h-7 px-3"
-                        onClick={() => markPaid(inst.id, Number(inst.amount), inst.calculatedLateInterest)}
+                        onClick={() => markPaid(inst.id, Number(inst.amount), inst.calculatedLateInterest, inst.currency)}
                       >
-                        Cobrar {formatCurrency(Number(inst.amount) + inst.calculatedLateInterest)}
+                        Cobrar {formatCurrency(Number(inst.amount) + inst.calculatedLateInterest, inst.currency)}
                       </Button>
                     ) : inst.status === 'pagado' ? (
                       <Badge variant="outline" className="bg-emerald-accent/15 text-emerald-glow border-emerald-accent/30 text-xs">
@@ -270,7 +370,7 @@ export default function CreditosPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => markPaid(inst.id, Number(inst.amount), 0)}
+                        onClick={() => markPaid(inst.id, Number(inst.amount), 0, inst.currency)}
                         className="border-primary/30 text-primary hover:bg-primary/10 text-xs h-7"
                       >
                         Cobrar
@@ -296,8 +396,17 @@ export default function CreditosPage() {
                 onClick={() => setSelectedCredit(credit)}
                 className="border-border/30 hover:bg-accent/50 cursor-pointer animate-fade-in"
               >
-                <TableCell className="font-medium text-sm">{credit.profiles?.full_name}</TableCell>
-                <TableCell className="text-sm">{formatCurrency(Number(credit.total_amount))}</TableCell>
+                <TableCell className="font-medium text-sm">
+                  <div className="space-y-1">
+                    <p>{credit.profiles?.full_name}</p>
+                    {credit.contracts?.assets_valuation && (
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-medium">
+                        🏠 {credit.contracts.assets_valuation.description}
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm font-semibold">{formatCurrency(Number(credit.total_amount), credit.currency)}</TableCell>
                 <TableCell className="hidden sm:table-cell text-sm">{credit.interest_rate}% (+{credit.daily_late_interest_rate || 0}% mora/día)</TableCell>
                 <TableCell className="hidden md:table-cell text-sm">{(credit.credit_installments||[]).filter(i=>i.status==='pagado').length}/{credit.total_installments}</TableCell>
                 <TableCell>
@@ -323,11 +432,21 @@ export default function CreditosPage() {
 
           {selectedCredit && (
             <div className="space-y-6 mt-4">
+              {/* Linked Asset Info if available */}
+              {selectedCredit.contracts?.assets_valuation && (
+                <div className="p-3.5 rounded-xl bg-blue-500/5 border border-blue-500/20 text-xs text-blue-300">
+                  <p className="font-semibold text-blue-200">Activo Financiado</p>
+                  <p className="mt-1 text-slate-300 font-medium">
+                    {selectedCredit.contracts.assets_valuation.asset_type.charAt(0).toUpperCase() + selectedCredit.contracts.assets_valuation.asset_type.slice(1)}: {selectedCredit.contracts.assets_valuation.description}
+                  </p>
+                </div>
+              )}
+
               {/* Credit summary cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3 rounded-xl bg-accent/20 border border-border/30 animate-fade-in">
                   <p className="text-xs text-muted-foreground font-semibold">Monto Total</p>
-                  <p className="text-base font-bold mt-0.5">{formatCurrency(Number(selectedCredit.total_amount))}</p>
+                  <p className="text-base font-bold mt-0.5">{formatCurrency(Number(selectedCredit.total_amount), selectedCredit.currency)}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-accent/20 border border-border/30 animate-fade-in">
                   <p className="text-xs text-muted-foreground font-semibold">Tasa Mensual</p>
