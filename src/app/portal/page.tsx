@@ -542,15 +542,21 @@ export default function PortalHomePage() {
                     </div>
 
                     {/* Progress slider (only if active) */}
-                    {(contract.status === 'activo' || isRetiro) && (
-                      <div className="space-y-1.5 pt-2">
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Progreso del período (12 meses)</span>
-                          <span>{daysRemaining(contract)} días restantes</span>
+                    {(contract.status === 'activo' || isRetiro) && (() => {
+                      const start = new Date(contract.start_date)
+                      const end = new Date(contract.end_date)
+                      const diffTime = Math.abs(end.getTime() - start.getTime())
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                      return (
+                        <div className="space-y-1.5 pt-2">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Progreso del período ({diffDays} días)</span>
+                            <span>{daysRemaining(contract)} días restantes</span>
+                          </div>
+                          <Progress value={contractProgress(contract)} className="h-2" />
                         </div>
-                        <Progress value={contractProgress(contract)} className="h-2" />
-                      </div>
-                    )}
+                      )
+                    })()}
 
                     {/* Withdrawal alert banner */}
                     {isRetiro && (

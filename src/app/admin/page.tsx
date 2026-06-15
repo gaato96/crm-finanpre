@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatCurrency, formatDate, isNearExpiration, daysRemaining } from '@/lib/helpers'
+import { formatCurrency, formatDate, isNearExpiration, daysRemaining, calculateCompoundCapital } from '@/lib/helpers'
 import type { Contract, Credit, AssetValuation } from '@/lib/types'
 import {
   DollarSign,
@@ -17,6 +17,8 @@ import {
   BarChart3,
   Users,
   CreditCard,
+  Bell,
+  Package,
 } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -78,6 +80,13 @@ export default function AdminDashboardPage() {
   const totalCreditos = data.credits.filter(c => c.status === 'vigente').reduce((s, c) => s + Number(c.total_amount), 0)
   const morosCount = data.credits.filter(c => c.status === 'moroso').length
   const morosPct = data.credits.length > 0 ? (morosCount / data.credits.length) * 100 : 0
+
+  // Withdrawal and consignment alerts
+  const pendingWithdrawals = data.contracts.filter(c => c.status === 'retiro_solicitado')
+  const overdueConsignments = data.contracts.filter(
+    (c) => c.status === 'en_consignacion' && new Date(c.start_date) <= new Date()
+  )
+  const pendingFunds = data.contracts.filter(c => c.status === 'pendiente_fondos')
 
   // Chart data: capital by category (from actual contract data)
   const capitalARS = activeContracts.filter(c => c.currency === 'ARS').reduce((s, c) => s + Number(c.initial_capital), 0)
@@ -178,6 +187,77 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Pending Actions Alert Bar ──────────────────────────────── */}
+      {(pendingWithdrawals.length > 0 || overdueConsignments.length > 0 || pendingFunds.length > 0) && (
+        <div className="space-y-3 animate-fade-in">
+          {/* Pending Withdrawals */}
+          {pendingWithdrawals.length > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/30">
+              <Bell className="w-5 h-5 text-orange-400 shrink-0 mt-0.5 animate-pulse" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-orange-400">
+                  🔔 {pendingWithdrawals.length} retiro{pendingWithdrawals.length > 1 ? 's' : ''} pendiente{pendingWithdrawals.length > 1 ? 's' : ''} de confirmación
+                </p>
+                <div className="mt-1.5 space-y-1">
+                  {pendingWithdrawals.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between text-xs">
+                      <span className="text-orange-400/80">
+                        {c.profiles?.full_name} — {formatCurrency(calculateCompoundCapital(c), c.currency)}
+                      </span>
+                      <Link href={`/admin/inversiones`}>
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-orange-400 hover:bg-orange-500/10 text-[10px] gap-1">
+                          <ArrowRight className="w-3 h-3" /> Gestionar
+                        </Button>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Overdue Consignments */}
+          {overdueConsignments.length > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
+              <Package className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-blue-400">
+                  📦 {overdueConsignments.length} consignación{overdueConsignments.length > 1 ? 'es' : ''} lista{overdueConsignments.length > 1 ? 's' : ''} para activar
+                </p>
+                <p className="text-xs text-blue-400/70 mt-0.5">
+                  {overdueConsignments.map((c) => c.profiles?.full_name).join(', ')}
+                </p>
+              </div>
+              <Link href="/admin/inversiones">
+                <Button size="sm" variant="outline" className="border-blue-500/40 text-blue-400 hover:bg-blue-500/10 shrink-0">
+                  Ver consignaciones
+                </Button>
+              </Link>
+            </div>
+          )}
+
+          {/* Pending Funds */}
+          {pendingFunds.length > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-400">
+                  ⏳ {pendingFunds.length} contrato{pendingFunds.length > 1 ? 's' : ''} esperando acreditación de fondos
+                </p>
+                <p className="text-xs text-amber-400/70 mt-0.5">
+                  {pendingFunds.map((c) => c.profiles?.full_name).join(', ')}
+                </p>
+              </div>
+              <Link href="/admin/inversiones">
+                <Button size="sm" variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 shrink-0">
+                  Ver pendientes
+                </Button>
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Charts + Alerts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

@@ -10,12 +10,12 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import type { Profile, Credit, CreditInstallment, ContractTemplate, Contract, AssetValuation } from '@/lib/types'
-import { formatCurrency, formatDate } from '@/lib/helpers'
-import { CreditCard, Plus, AlertTriangle, CheckCircle2, Clock, Loader2, Calendar } from 'lucide-react'
+import { formatCurrency, formatDate, formatWhatsAppUrl } from '@/lib/helpers'
+import { CreditCard, Plus, AlertTriangle, CheckCircle2, Clock, Loader2, Calendar, MessageCircle } from 'lucide-react'
 
 export default function CreditosPage() {
   const [credits, setCredits] = useState<(Credit & { 
-    profiles: { full_name: string }; 
+    profiles: { full_name: string; phone?: string | null }; 
     credit_installments: CreditInstallment[];
     contracts?: (Contract & { assets_valuation?: AssetValuation | null }) | null;
   })[]>([])
@@ -42,7 +42,7 @@ export default function CreditosPage() {
 
   const fetchData = async () => {
     const [creditsRes, clientsRes, templatesRes, assetsRes] = await Promise.all([
-      supabase.from('credits').select('*, profiles(full_name), credit_installments(*), contracts(*, assets_valuation(*))').order('created_at', { ascending: false }),
+      supabase.from('credits').select('*, profiles(full_name, phone), credit_installments(*), contracts(*, assets_valuation(*))').order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').eq('role', 'investor').order('full_name'),
       supabase.from('contract_templates').select('*').eq('type', 'credito').eq('is_active', true).order('created_at', { ascending: false }),
       supabase.from('assets_available').select('*, asset_valuation:asset_valuation_id(*)').eq('status', 'disponible').order('created_at', { ascending: false })
@@ -427,6 +427,18 @@ export default function CreditosPage() {
             <DialogTitle className="flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-primary" />
               Detalles del Crédito — {selectedCredit?.profiles?.full_name}
+              {selectedCredit?.profiles?.phone && formatWhatsAppUrl(selectedCredit.profiles.phone) && (
+                <a
+                  href={formatWhatsAppUrl(selectedCredit.profiles.phone)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="WhatsApp"
+                  className="ml-auto inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-colors font-medium"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  WhatsApp
+                </a>
+              )}
             </DialogTitle>
           </DialogHeader>
 

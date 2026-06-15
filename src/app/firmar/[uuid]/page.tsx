@@ -304,7 +304,7 @@ export default function PublicSigningPage() {
       const { error: updateErr } = await supabase
         .from('contracts')
         .update({
-          status: 'pendiente_fondos',
+          status: contract.asset_id ? 'en_consignacion' : 'pendiente_fondos',
           contract_signed_at: today.toISOString(),
           signer_ip: ip,
           contract_hash: documentHash,

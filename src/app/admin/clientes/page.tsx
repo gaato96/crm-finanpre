@@ -25,7 +25,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { StarRating } from '@/components/StarRating'
 import type { Profile, ClientType } from '@/lib/types'
-import { formatDate } from '@/lib/helpers'
+import { formatDate, formatWhatsAppUrl } from '@/lib/helpers'
 import {
   Search,
   UserPlus,
@@ -43,6 +43,7 @@ import {
   Pencil,
   Trash2,
   MoreHorizontal,
+  MessageCircle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { adminCreateClient } from './actions'
@@ -643,10 +644,24 @@ export default function ClientesPage() {
                     {/* Phone */}
                     <TableCell className="hidden lg:table-cell">
                       {client.phone ? (
-                        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                          <Phone className="w-3.5 h-3.5 text-emerald-400/70 shrink-0" />
-                          {client.phone}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Phone className="w-3.5 h-3.5 text-emerald-400/70 shrink-0" />
+                            {client.phone}
+                          </span>
+                          {formatWhatsAppUrl(client.phone) && (
+                            <a
+                              href={formatWhatsAppUrl(client.phone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Contactar por WhatsApp"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center justify-center w-6 h-6 rounded-md bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-400 transition-colors shrink-0"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground/40">—</span>
                       )}

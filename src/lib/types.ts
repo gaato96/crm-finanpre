@@ -54,6 +54,7 @@ export type ContractStatus =
   | 'borrador'
   | 'enviado'
   | 'pendiente_fondos'
+  | 'en_consignacion'
   | 'activo'
   | 'retiro_solicitado'
   | 'retirado'
@@ -83,6 +84,14 @@ export interface Contract {
   withdrawal_requested_at: string | null
   withdrawal_confirmed_at: string | null
   created_at: string
+  // Consignment fields
+  consignacion_dias?: number | null
+  consignacion_inicio?: string | null
+  consignacion_fin?: string | null
+  // Detailed withdrawal fields
+  withdrawal_requested_amount?: number | null
+  withdrawal_type?: 'total' | 'parcial_porcentaje' | 'parcial_monto' | null
+  withdrawal_requested_percentage?: number | null
   // Joined
   profiles?: Profile
   assets_valuation?: AssetValuation

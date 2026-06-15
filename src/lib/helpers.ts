@@ -131,6 +131,35 @@ export function formatDateTime(dateString: string): string {
 }
 
 /**
+ * Formatea un número de teléfono y genera el enlace para WhatsApp.
+ * Si no tiene código de país, asume +54 (Argentina).
+ */
+export function formatWhatsAppUrl(telefono: string | null | undefined): string {
+  if (!telefono) return ''
+  // Elimina todo lo que no sea número
+  const cleaned = telefono.replace(/\D/g, '')
+  if (!cleaned) return ''
+  
+  // Si no empieza con el código de país (54), lo agregamos
+  let withCountry = cleaned
+  if (!cleaned.startsWith('54') && cleaned.length >= 10) {
+    // Si tiene 15 de prefijo celular argentino local, quitarlo o acomodarlo si es necesario.
+    // Generalmente para celular es 54 9 + área + número.
+    // Si es un número local de 10 dígitos (ej: 381 1234567), agregamos 54 9 delante.
+    if (cleaned.length === 10) {
+      withCountry = `549${cleaned}`
+    } else {
+      withCountry = `54${cleaned}`
+    }
+  } else if (cleaned.startsWith('0') && cleaned.length > 10) {
+    // Si empieza con 0, quitar el 0
+    withCountry = `549${cleaned.substring(1)}`
+  }
+  
+  return `https://wa.me/${withCountry}`
+}
+
+/**
  * Progreso del contrato (0-100%).
  */
 export function contractProgress(contract: Contract): number {
@@ -149,6 +178,7 @@ export function getContractStatusLabel(status: string): string {
     borrador: 'Borrador',
     enviado: 'Enviado al cliente',
     pendiente_fondos: 'Pendiente de fondos',
+    en_consignacion: 'En consignación',
     activo: 'Activo',
     retiro_solicitado: 'Retiro solicitado',
     retirado: 'Retirado',
@@ -166,8 +196,9 @@ export function getContractStatusColor(status: string): string {
     borrador: 'text-slate-400 border-slate-400/30 bg-slate-400/10',
     enviado: 'text-blue-400 border-blue-400/30 bg-blue-400/10',
     pendiente_fondos: 'text-amber-400 border-amber-400/30 bg-amber-400/10',
+    en_consignacion: 'text-orange-400 border-orange-400/30 bg-orange-500/10',
     activo: 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
-    retiro_solicitado: 'text-orange-400 border-orange-400/30 bg-orange-400/10',
+    retiro_solicitado: 'text-yellow-400 border-yellow-400/30 bg-yellow-400/10',
     retirado: 'text-purple-400 border-purple-400/30 bg-purple-400/10',
     reinvertido: 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
     vencido: 'text-red-400 border-red-400/30 bg-red-400/10',

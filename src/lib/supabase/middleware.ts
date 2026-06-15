@@ -32,9 +32,24 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
+  // Wrap user retrieval with a timeout to avoid GATEWAY_TIMEOUT (504)
+  const getUserWithTimeout = async () => {
+    try {
+      const userPromise = supabase.auth.getUser()
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout fetching user')), 8000)
+      )
+      const result = await Promise.race([userPromise, timeoutPromise])
+      return result as any
+    } catch (err) {
+      console.error('Middleware: Error fetching user (possible timeout):', err)
+      return { data: { user: null }, error: err }
+    }
+  }
+
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await getUserWithTimeout()
 
   const pathname = request.nextUrl.pathname
 
@@ -45,13 +60,18 @@ export async function updateSession(request: NextRequest) {
       return user.user_metadata.role
     }
     try {
-      const { data: profile } = await supabase
+      const profilePromise = supabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)
         .single()
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout fetching profile role')), 5000)
+      )
+      const { data: profile } = await Promise.race([profilePromise, timeoutPromise]) as any
       return profile?.role ?? null
-    } catch {
+    } catch (err) {
+      console.error('Middleware: Error fetching role:', err)
       return null
     }
   }

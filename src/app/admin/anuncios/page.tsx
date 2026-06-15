@@ -27,8 +27,12 @@ import {
   Flame,
   Check,
   X,
+  Mail,
+  Users,
+  Send,
+  CheckCircle2,
 } from 'lucide-react'
-import { formatDate } from '@/lib/helpers'
+import { formatDate, formatDateTime } from '@/lib/helpers'
 
 type Announcement = {
   id: string
@@ -38,6 +42,8 @@ type Announcement = {
   target_role: string
   active: boolean
   created_at: string
+  last_email_sent_at?: string | null
+  email_recipients_count?: number | null
 }
 
 const TYPE_ICONS = {
@@ -59,6 +65,11 @@ export default function AnunciosPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Email sending state
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null)
+  const [emailResult, setEmailResult] = useState<{ id: string; sent: number; failed: number } | null>(null)
+  const [emailConfirmId, setEmailConfirmId] = useState<string | null>(null)
 
   // Form states
   const [title, setTitle] = useState('')
@@ -142,6 +153,32 @@ export default function AnunciosPage() {
     }
   }
 
+  const handleSendEmail = async (announcement: Announcement) => {
+    setSendingEmail(announcement.id)
+    setEmailResult(null)
+    setEmailConfirmId(null)
+    try {
+      const res = await fetch('/api/emails/send-announcement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          announcementId: announcement.id,
+          title: announcement.title,
+          content: announcement.content,
+          type: announcement.type,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Error al enviar')
+      setEmailResult({ id: announcement.id, sent: json.sent, failed: json.failed })
+      fetchAnnouncements()
+    } catch (err: any) {
+      alert('Error al enviar emails: ' + err.message)
+    } finally {
+      setSendingEmail(null)
+    }
+  }
+
   const filtered = announcements.filter((a) => {
     const term = search.toLowerCase()
     return (
@@ -161,7 +198,7 @@ export default function AnunciosPage() {
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold gradient-text">Gestión de Anuncios</h1>
             <p className="text-muted-foreground text-sm">
-              Publica anuncios, alertas y promociones directamente en el panel de los inversores
+              Publica anuncios y enviá correos masivos a todos los inversores
             </p>
           </div>
         </div>
@@ -213,7 +250,7 @@ export default function AnunciosPage() {
                 <Textarea
                   id="content"
                   required
-                  placeholder="Escribe el mensaje detallado para los inversores. Por ejemplo: Recibimos un departamento en Barrio Sur como parte de pago, financiado con excelentes tasas de retorno..."
+                  placeholder="Escribe el mensaje detallado para los inversores..."
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className="bg-input/50 resize-none min-h-[100px]"
@@ -262,6 +299,27 @@ export default function AnunciosPage() {
         </Dialog>
       </div>
 
+      {/* Email send result toast */}
+      {emailResult && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 animate-fade-in">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-400">
+              ✅ Emails enviados exitosamente
+            </p>
+            <p className="text-xs text-emerald-400/70 mt-0.5">
+              {emailResult.sent} enviados{emailResult.failed > 0 ? ` · ${emailResult.failed} fallaron` : ''}
+            </p>
+          </div>
+          <button
+            onClick={() => setEmailResult(null)}
+            className="text-emerald-400/60 hover:text-emerald-400 text-xs"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Search panel */}
       <Card className="glass-card">
         <CardContent className="py-4">
@@ -298,7 +356,8 @@ export default function AnunciosPage() {
               <TableRow className="border-border/50 hover:bg-transparent">
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase pl-4">Tipo</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase">Anuncio</TableHead>
-                <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden sm:table-cell">Fecha de Publicación</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden sm:table-cell">Publicado</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden md:table-cell">Email masivo</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase">Estado</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase text-right pr-4">Acciones</TableHead>
               </TableRow>
@@ -318,7 +377,24 @@ export default function AnunciosPage() {
                       <p className="text-xs text-muted-foreground line-clamp-1">{announcement.content}</p>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">{formatDate(announcement.created_at)}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                    {formatDate(announcement.created_at)}
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {announcement.last_email_sent_at ? (
+                      <div className="space-y-0.5">
+                        <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium">
+                          <Mail className="w-3 h-3" />
+                          Enviado
+                        </span>
+                        <span className="text-[10px] text-muted-foreground block">
+                          {formatDate(announcement.last_email_sent_at)} · {announcement.email_recipients_count || 0} destinatarios
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/40">No enviado</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <button
                       onClick={() => handleToggleActive(announcement.id, announcement.active)}
@@ -329,26 +405,72 @@ export default function AnunciosPage() {
                       }`}
                     >
                       {announcement.active ? (
-                        <>
-                          <Check className="w-3 h-3" /> Visible
-                        </>
+                        <><Check className="w-3 h-3" /> Visible</>
                       ) : (
-                        <>
-                          <X className="w-3 h-3" /> Oculto
-                        </>
+                        <><X className="w-3 h-3" /> Oculto</>
                       )}
                     </button>
                   </TableCell>
                   <TableCell className="text-right pr-4">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDeleteAnnouncement(announcement.id)}
-                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 gap-1 text-xs"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Eliminar
-                    </Button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {/* Send Mass Email button */}
+                      {emailConfirmId === announcement.id ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground">¿Confirmar?</span>
+                          <Button
+                            size="sm"
+                            disabled={sendingEmail === announcement.id}
+                            onClick={() => {
+                              setEmailConfirmId(null)
+                              handleSendEmail(announcement)
+                            }}
+                            className="h-7 px-2 bg-blue-500/20 border border-blue-500/40 text-blue-400 hover:bg-blue-500/30 text-xs gap-1"
+                          >
+                            {sendingEmail === announcement.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Send className="w-3 h-3" />
+                            )}
+                            Sí, enviar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEmailConfirmId(null)}
+                            className="h-7 px-1.5 text-muted-foreground hover:text-foreground text-xs"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={sendingEmail === announcement.id}
+                          onClick={() => setEmailConfirmId(announcement.id)}
+                          title="Enviar por email masivo a todos los inversores"
+                          className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 h-8 gap-1 text-xs"
+                        >
+                          {sendingEmail === announcement.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : emailResult?.id === announcement.id ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Mail className="w-3.5 h-3.5" />
+                          )}
+                          <span className="hidden sm:inline">Email masivo</span>
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteAnnouncement(announcement.id)}
+                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 gap-1 text-xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Eliminar
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

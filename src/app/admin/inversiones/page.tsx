@@ -11,6 +11,7 @@ import {
   projectCapital,
   fillContractTemplate,
   numberToWords,
+  formatWhatsAppUrl,
 } from '@/lib/helpers'
 import type { Contract, Profile, ContractTemplate } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -44,16 +45,17 @@ import {
   Calendar,
   Percent,
   Trash2,
+  MessageCircle,
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 type ContractWithProfile = Contract & { 
-  profiles: { full_name: string; dni: string; id: string }
+  profiles: { full_name: string; dni: string; id: string; phone?: string | null }
   assets_valuation?: { description: string; asset_type: string } | null
 }
-type FilterKey = 'todas' | 'activas' | 'borradores' | 'enviados' | 'pendiente_fondos' | 'retiros' | 'vencidas'
+type FilterKey = 'todas' | 'activas' | 'borradores' | 'enviados' | 'pendiente_fondos' | 'consignaciones' | 'retiros' | 'vencidas'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -62,9 +64,9 @@ function todayISO() {
   return new Date().toISOString().split('T')[0]
 }
 
-function endDateFromStart(startDate: string) {
-  const d = new Date(startDate)
-  d.setFullYear(d.getFullYear() + 1)
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
 }
 
@@ -89,6 +91,9 @@ export default function InversionesPage() {
   const [capital, setCapital] = useState('')
   const [rate, setRate] = useState('')
   const [startDate, setStartDate] = useState(todayISO())
+  const [endDate, setEndDate] = useState(addDays(todayISO(), 30))
+  const [consignacionDias, setConsignacionDias] = useState<number>(60)
+  const [consignacionInicio, setConsignacionInicio] = useState(todayISO())
   const [activeTab, setActiveTab] = useState('nueva')
   const [clientAssets, setClientAssets] = useState<any[]>([])
   const [selectedAssetId, setSelectedAssetId] = useState<string>('')
@@ -122,7 +127,7 @@ export default function InversionesPage() {
     setLoadingContracts(true)
     const { data } = await supabase
       .from('contracts')
-      .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
+      .select('*, profiles(full_name, dni, id, phone), assets_valuation(description, asset_type)')
       .order('created_at', { ascending: false })
     setContracts((data || []) as ContractWithProfile[])
     setLoadingContracts(false)
@@ -207,12 +212,16 @@ export default function InversionesPage() {
     if (activeFilter === 'borradores') return c.status === 'borrador'
     if (activeFilter === 'enviados') return c.status === 'enviado'
     if (activeFilter === 'pendiente_fondos') return c.status === 'pendiente_fondos'
+    if (activeFilter === 'consignaciones') return c.status === 'en_consignacion'
     if (activeFilter === 'retiros') return c.status === 'retiro_solicitado'
     if (activeFilter === 'vencidas') return c.status === 'vencido'
     return true
   })
 
   const pendingWithdrawals = contracts.filter((c) => c.status === 'retiro_solicitado')
+  const overdueConsignments = contracts.filter(
+    (c) => c.status === 'en_consignacion' && new Date(c.start_date) <= new Date()
+  )
 
   // ─────────────────────────────────────────────────────────────────────────
   // Handlers
@@ -230,9 +239,12 @@ export default function InversionesPage() {
         currency,
         monthly_rate: rateNum,
         start_date: startDate,
-        end_date: endDateFromStart(startDate),
+        end_date: endDate,
         status: 'borrador',
         template_id: selectedTemplateId || null,
+        consignacion_dias: selectedAssetId ? consignacionDias : null,
+        consignacion_inicio: selectedAssetId ? consignacionInicio : null,
+        consignacion_fin: selectedAssetId ? startDate : null,
       })
       .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
       .single()
@@ -261,9 +273,12 @@ export default function InversionesPage() {
           currency,
           monthly_rate: rateNum,
           start_date: startDate,
-          end_date: endDateFromStart(startDate),
+          end_date: endDate,
           status: 'enviado',
           template_id: selectedTemplateId || null,
+          consignacion_dias: selectedAssetId ? consignacionDias : null,
+          consignacion_inicio: selectedAssetId ? consignacionInicio : null,
+          consignacion_fin: selectedAssetId ? startDate : null,
         })
         .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
         .single()
@@ -358,6 +373,30 @@ export default function InversionesPage() {
     setWithdrawalConfirming(null)
   }
 
+  async function handleActivateConsignment(contractId: string) {
+    setWithdrawalConfirming(contractId)
+    const todayStr = todayISO()
+    const nextVenc = addDays(todayStr, 30)
+    const { error } = await supabase
+      .from('contracts')
+      .update({
+        status: 'activo',
+        start_date: todayStr,
+        end_date: nextVenc,
+      })
+      .eq('id', contractId)
+    if (!error) {
+      await supabase.from('contract_events').insert({
+        contract_id: contractId,
+        event_type: 'funds_confirmed',
+        metadata: { activated_at: new Date().toISOString() },
+      })
+      setWithdrawalSuccess(contractId)
+      await fetchContracts()
+    }
+    setWithdrawalConfirming(null)
+  }
+
   async function handleDeleteDraft(contractId: string) {
     if (!confirm('¿Seguro que querés eliminar este borrador?')) return
     await supabase.from('contracts').delete().eq('id', contractId)
@@ -442,6 +481,32 @@ export default function InversionesPage() {
             onClick={() => setActiveFilter('retiros')}
           >
             Ver retiros
+          </Button>
+        </div>
+      )}
+
+      {/* ── Overdue/Completed Consignments Alert ───────────────────────────── */}
+      {overdueConsignments.length > 0 && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 animate-fade-in">
+          <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-orange-400">
+              {overdueConsignments.length} consignación{overdueConsignments.length > 1 ? 'es' : ''} cumplida{overdueConsignments.length > 1 ? 's' : ''} lista{overdueConsignments.length > 1 ? 's' : ''} para iniciar inversión
+            </p>
+            <p className="text-xs text-orange-400/70 mt-0.5">
+              {overdueConsignments.map((c) => c.profiles?.full_name).join(', ')}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-orange-500/40 text-orange-400 hover:bg-orange-500/10 shrink-0"
+            onClick={() => {
+              setActiveFilter('consignaciones')
+              setActiveTab('todas')
+            }}
+          >
+            Ver consignaciones
           </Button>
         </div>
       )}
@@ -546,9 +611,18 @@ export default function InversionesPage() {
                               if (asset.currency === 'ARS' || asset.currency === 'USD') {
                                 setCurrency(asset.currency)
                               }
+                              // Set default consignment
+                              const todayStr = todayISO()
+                              setConsignacionInicio(todayStr)
+                              setConsignacionDias(60)
+                              const consignFin = addDays(todayStr, 60)
+                              setStartDate(consignFin)
+                              setEndDate(addDays(consignFin, 30))
                             }
                           } else {
                             setCapital('')
+                            setStartDate(todayISO())
+                            setEndDate(addDays(todayISO(), 30))
                           }
                         }}
                         className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all text-foreground"
@@ -562,9 +636,61 @@ export default function InversionesPage() {
                       </select>
                       {selectedAssetId && (
                         <p className="text-xs text-blue-400 font-medium mt-1">
-                          Se utilizará el valor tasado del activo ({formatCurrency(parseFloat(capital) || 0, currency)}) como capital inicial del contrato. Al firmarse el contrato, este activo se agregará automáticamente a Activos Disponibles.
+                          Se utilizará el valor tasado del activo ({formatCurrency(parseFloat(capital) || 0, currency)}) como capital inicial del contrato. Al firmarse el contrato, este activo se agregará automáticamente a Activos Disponibles y comenzará el período de consignación.
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* Consignación de Activo */}
+                  {selectedAssetId && (
+                    <div className="p-4 rounded-xl border border-orange-500/20 bg-orange-500/5 space-y-4 animate-fade-in">
+                      <p className="text-xs font-semibold text-orange-400 uppercase tracking-wider">
+                        Período de Consignación de Venta
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground font-semibold">
+                            Inicio Consignación
+                          </Label>
+                          <input
+                            type="date"
+                            value={consignacionInicio}
+                            onChange={(e) => {
+                              const newInicio = e.target.value
+                              setConsignacionInicio(newInicio)
+                              const nextStart = addDays(newInicio, consignacionDias)
+                              setStartDate(nextStart)
+                              setEndDate(addDays(nextStart, 30))
+                            }}
+                            className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all text-foreground"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground font-semibold">
+                            Duración de Consignación
+                          </Label>
+                          <select
+                            value={consignacionDias}
+                            onChange={(e) => {
+                              const newDias = Number(e.target.value)
+                              setConsignacionDias(newDias)
+                              const nextStart = addDays(consignacionInicio, newDias)
+                              setStartDate(nextStart)
+                              setEndDate(addDays(nextStart, 30))
+                            }}
+                            className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all text-foreground"
+                          >
+                            <option value={30}>30 días</option>
+                            <option value={60}>60 días (Estándar)</option>
+                            <option value={90}>90 días</option>
+                            <option value={120}>120 días</option>
+                          </select>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        La consignación finaliza el <span className="font-semibold text-orange-400">{formatDate(startDate)}</span>. En esa fecha se dará por iniciada la inversión.
+                      </p>
                     </div>
                   )}
 
@@ -639,19 +765,48 @@ export default function InversionesPage() {
                     </div>
                   </div>
 
-                  {/* Fecha de inicio */}
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      Fecha de Inicio
-                    </Label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                    />
+                  {/* Fechas de Inicio y Vencimiento */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        Fecha de Inicio {selectedAssetId && 'de Inversión'}
+                      </Label>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => {
+                          const newStart = e.target.value
+                          setStartDate(newStart)
+                          if (!selectedAssetId) {
+                            setEndDate(addDays(newStart, 30))
+                          }
+                        }}
+                        readOnly={!!selectedAssetId}
+                        className={`w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all ${
+                          selectedAssetId ? 'opacity-70 cursor-not-allowed bg-accent/20' : ''
+                        }`}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        Primer Vencimiento
+                      </Label>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                      />
+                    </div>
                   </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {selectedAssetId 
+                      ? 'La fecha de inicio se calcula al fin de la consignación. El primer vencimiento se puede personalizar.'
+                      : 'Por defecto, el vencimiento es a 30 días, pero podés elegir una fecha personalizada (ej: 35 o 40 días).'}
+                  </p>
 
                   {/* CTA */}
                   <Button
@@ -790,6 +945,12 @@ export default function InversionesPage() {
                     key: 'pendiente_fondos',
                     label: 'Pendientes de Pago',
                     count: contracts.filter((c) => c.status === 'pendiente_fondos').length,
+                  },
+                  {
+                    key: 'consignaciones',
+                    label: 'En Consignación',
+                    count: contracts.filter((c) => c.status === 'en_consignacion').length,
+                    alert: overdueConsignments.length > 0,
                   },
                   {
                     key: 'retiros',
@@ -968,10 +1129,21 @@ export default function InversionesPage() {
 
                               {/* Inicio */}
                               <td className="px-4 py-3">
-                                <p className="text-sm">{formatDate(contract.start_date)}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  vence {formatDate(contract.end_date)}
-                                </p>
+                                {contract.status === 'en_consignacion' ? (
+                                  <div>
+                                    <p className="text-sm font-medium text-orange-400">En consignación ({contract.consignacion_dias || 60} días)</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      inicia {formatDate(contract.start_date)}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <p className="text-sm">{formatDate(contract.start_date)}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      vence {formatDate(contract.end_date)}
+                                    </p>
+                                  </div>
+                                )}
                               </td>
 
                               {/* Acciones */}
@@ -988,6 +1160,19 @@ export default function InversionesPage() {
                                       <span className="hidden sm:inline">Ver cliente</span>
                                     </Button>
                                   </Link>
+
+                                  {/* WhatsApp */}
+                                  {contract.profiles?.phone && formatWhatsAppUrl(contract.profiles.phone) && (
+                                    <a
+                                      href={formatWhatsAppUrl(contract.profiles.phone)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="WhatsApp"
+                                      className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+                                    >
+                                      <MessageCircle className="w-3 h-3" />
+                                    </a>
+                                  )}
 
                                   {/* Confirmar Retiro */}
                                   {isRetiro && (
@@ -1024,6 +1209,25 @@ export default function InversionesPage() {
                                         <CheckCircle2 className="w-3 h-3" />
                                       )}
                                       Confirmar pago
+                                    </Button>
+                                  )}
+
+                                  {/* Activar Consignación */}
+                                  {contract.status === 'en_consignacion' && (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleActivateConsignment(contract.id)}
+                                      disabled={withdrawalConfirming === contract.id}
+                                      className="h-7 px-2.5 bg-orange-500/20 border border-orange-500/40 text-orange-400 hover:bg-orange-500/30 text-xs font-semibold gap-1 animate-pulse"
+                                    >
+                                      {withdrawalConfirming === contract.id ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : withdrawalSuccess === contract.id ? (
+                                        <Check className="w-3 h-3" />
+                                      ) : (
+                                        <CheckCircle2 className="w-3 h-3" />
+                                      )}
+                                      Activar Inversión
                                     </Button>
                                   )}
 
