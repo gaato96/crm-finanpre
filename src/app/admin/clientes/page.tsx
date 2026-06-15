@@ -280,7 +280,7 @@ export default function ClientesPage() {
   const handleDeleteClient = async (clientId: string) => {
     setDeleting(true)
     const supabase = createClient()
-    const { error } = await supabase.from('profiles').delete().eq('id', clientId)
+    const { error } = await supabase.rpc('delete_user_admin', { user_id: clientId })
     if (error) {
       alert('Error al eliminar: ' + error.message)
     }
