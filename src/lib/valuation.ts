@@ -16,6 +16,10 @@ export interface RealEstateDetails {
   bathrooms: number
   hasPatio: boolean
   hasGarage: boolean
+  constructionYears: number
+  hasPlans: boolean
+  taxesUpToDate: boolean
+  mortgageEligible: boolean
 }
 
 export interface ValuationConfig {
@@ -88,13 +92,20 @@ export const DEFAULT_VALUATION_CONFIG: ValuationConfig = {
   },
 }
 
+export interface ValuationResult {
+  estimatedValue: number
+  saleabilityScore: number
+  saleabilityLabel: 'Alta' | 'Media' | 'Baja'
+  saleabilityReasons: string[]
+}
+
 /**
  * Calculates vehicle value in USD
  */
 export function calculateVehicleValuation(
   details: VehicleDetails,
   config: ValuationConfig = DEFAULT_VALUATION_CONFIG
-): number {
+): ValuationResult {
   const currentYear = new Date().getFullYear()
   const age = Math.max(0, currentYear - details.year)
   
@@ -129,8 +140,24 @@ export function calculateVehicleValuation(
     price += config.vehicle.batteryDiscount
   }
 
-  // Ensure price doesn't drop below a minimum scrap value ($1,000 USD)
-  return Math.round(Math.max(1000, price))
+  // Calulate saleability for vehicle
+  let score = 80; // cars are highly liquid usually
+  const reasons: string[] = ['Vehículo: alta liquidez de mercado general.'];
+  if (age > 15) { score -= 20; reasons.push('Más de 15 años de antigüedad reduce el mercado potencial.'); }
+  if (details.crashes === 'major') { score -= 30; reasons.push('Daño mayor reportado dificulta la venta.'); }
+  if (details.engineCondition === 'poor') { score -= 30; reasons.push('Motor en mal estado requiere reparación previa a la venta.'); }
+  
+  score = Math.max(0, Math.min(100, score))
+  let label: 'Alta' | 'Media' | 'Baja' = 'Media';
+  if (score >= 80) label = 'Alta';
+  else if (score <= 49) label = 'Baja';
+
+  return {
+    estimatedValue: Math.round(Math.max(1000, price)),
+    saleabilityScore: score,
+    saleabilityLabel: label,
+    saleabilityReasons: reasons
+  }
 }
 
 /**
@@ -139,7 +166,7 @@ export function calculateVehicleValuation(
 export function calculateRealEstateValuation(
   details: RealEstateDetails,
   config: ValuationConfig = DEFAULT_VALUATION_CONFIG
-): number {
+): ValuationResult {
   // Price per sqm based on zone
   const pricePerSqm = config.realEstate.zones[details.zone] || config.realEstate.zones['Otras zonas'] || 450
   
@@ -159,7 +186,7 @@ export function calculateRealEstateValuation(
     price += config.realEstate.patioValue
   }
 
-  // Adjust by property type (casa gets 1.0, departamento gets 0.95 due to shared land, terreno gets 0.8)
+  // Adjust by property type
   const typeMultipliers = {
     casa: 1.0,
     departamento: 0.95,
@@ -168,5 +195,68 @@ export function calculateRealEstateValuation(
   const typeMult = typeMultipliers[details.propertyType] || 1.0
   price = price * typeMult
 
-  return Math.round(price)
+  // ECONOMIC PENALTIES
+  // No plans
+  if (!details.hasPlans) {
+    price = price * 0.95; // -5%
+  }
+  // Taxes debt
+  if (!details.taxesUpToDate) {
+    price = price * 0.98; // -2%
+  }
+  // Age depreciation (after 30 years, -0.5% per extra year)
+  if (details.constructionYears > 30) {
+    const extraYears = details.constructionYears - 30;
+    const depreciationMultiplier = 1 - (extraYears * 0.005);
+    price = price * Math.max(0.6, depreciationMultiplier); // up to -40%
+  }
+
+  // SALEABILITY CALCULATION
+  let score = 30; // base score
+  const reasons: string[] = [];
+
+  if (details.mortgageEligible) {
+    score += 30;
+    reasons.push('Apto crédito hipotecario (acelera mucho la venta).');
+  } else {
+    reasons.push('No apto crédito (limita compradores a quienes tienen efectivo/dólares billete).');
+  }
+
+  if (details.hasPlans) {
+    score += 20;
+    reasons.push('Planos de mensura vigentes (listo para escriturar).');
+  } else {
+    reasons.push('Sin planos de mensura (demora escrituración y trámites).');
+  }
+
+  if (details.taxesUpToDate) {
+    score += 10;
+    reasons.push('Impuestos de rentas/municipal al día.');
+  } else {
+    reasons.push('Deuda de impuestos (resta atractivo y debe saldarse antes de venta).');
+  }
+
+  if (details.constructionYears <= 5) {
+    score += 10;
+    reasons.push('Construcción muy nueva o a estrenar.');
+  } else if (details.constructionYears <= 20) {
+    score += 5;
+    reasons.push('Construcción en edad media aceptable.');
+  } else if (details.constructionYears > 40) {
+    score -= 10;
+    reasons.push('Construcción antigua (puede requerir reciclaje o remodelación de cañerías/eléctrica).');
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  let label: 'Alta' | 'Media' | 'Baja' = 'Media';
+  if (score >= 80) label = 'Alta';
+  else if (score <= 49) label = 'Baja';
+
+  return {
+    estimatedValue: Math.round(price),
+    saleabilityScore: score,
+    saleabilityLabel: label,
+    saleabilityReasons: reasons
+  }
 }

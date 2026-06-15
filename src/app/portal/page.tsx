@@ -83,13 +83,19 @@ export default function PortalHomePage() {
   const [propBathrooms, setPropBathrooms] = useState<number>(1)
   const [propPatio, setPropPatio] = useState(false)
   const [propGarage, setPropGarage] = useState(false)
+  const [propConstructionYears, setPropConstructionYears] = useState<number>(0)
+  const [propHasPlans, setPropHasPlans] = useState(true)
+  const [propTaxesUpToDate, setPropTaxesUpToDate] = useState(true)
+  const [propMortgageEligible, setPropMortgageEligible] = useState(true)
+
+  const [valResult, setValResult] = useState<{ score: number, label: string, reasons: string[] } | null>(null)
 
   // Dynamic valuation calculation
   useEffect(() => {
     if (!valConfig) return
 
     if (valType === 'vehiculo') {
-      const estimatedUSD = calculateVehicleValuation({
+      const result = calculateVehicleValuation({
         brandModel: vehBrandModel,
         year: Number(vehYear) || new Date().getFullYear(),
         mileage: Number(vehMileage) || 0,
@@ -98,12 +104,13 @@ export default function PortalHomePage() {
         batteryCondition: vehBattery,
       }, valConfig)
 
-      setValMarketValue(estimatedUSD.toString())
+      setValMarketValue(result.estimatedValue.toString())
+      setValResult({ score: result.saleabilityScore, label: result.saleabilityLabel, reasons: result.saleabilityReasons })
       
       const detailsText = `${vehBrandModel} ${vehYear} (${vehMileage.toLocaleString()} km) · Choques: ${vehCrashes === 'none' ? 'Ninguno' : vehCrashes === 'minor' ? 'Leves' : 'Graves'} · Motor: ${vehEngine === 'good' ? 'Excelente' : vehEngine === 'fair' ? 'Regular' : 'Malo'}`
       setValDescription(detailsText)
     } else {
-      const estimatedUSD = calculateRealEstateValuation({
+      const result = calculateRealEstateValuation({
         propertyType: propType,
         zone: propZone || 'Otras zonas',
         areaSqm: Number(propArea) || 0,
@@ -112,16 +119,22 @@ export default function PortalHomePage() {
         bathrooms: Number(propBathrooms) || 1,
         hasPatio: propPatio,
         hasGarage: propGarage,
+        constructionYears: Number(propConstructionYears) || 0,
+        hasPlans: propHasPlans,
+        taxesUpToDate: propTaxesUpToDate,
+        mortgageEligible: propMortgageEligible,
       }, valConfig)
 
-      setValMarketValue(estimatedUSD.toString())
+      setValMarketValue(result.estimatedValue.toString())
+      setValResult({ score: result.saleabilityScore, label: result.saleabilityLabel, reasons: result.saleabilityReasons })
 
-      const detailsText = `${propType.toUpperCase()} en ${propZone || 'Tucumán'} · ${propArea} m² · ${propRooms} amb (${propBedrooms} dorm, ${propBathrooms} baños) ${propGarage ? '· Cochera' : ''} ${propPatio ? '· Patio' : ''}`
+      const detailsText = `${propType.toUpperCase()} en ${propZone || 'Tucumán'} · ${propArea} m² · ${propRooms} amb (${propBedrooms} dorm, ${propBathrooms} baños) ${propGarage ? '· Cochera' : ''} ${propPatio ? '· Patio' : ''} · Antigüedad: ${propConstructionYears} años`
       setValDescription(detailsText)
     }
   }, [
     valType, vehBrandModel, vehYear, vehMileage, vehCrashes, vehEngine, vehBattery,
     propType, propZone, propArea, propRooms, propBedrooms, propBathrooms, propPatio, propGarage,
+    propConstructionYears, propHasPlans, propTaxesUpToDate, propMortgageEligible,
     valConfig
   ])
 
@@ -277,6 +290,7 @@ export default function PortalHomePage() {
         currency: 'USD',
         status: 'pendiente',
         valuation_details: details,
+        metadata: valResult,
       })
 
     if (saveError) {
@@ -293,6 +307,16 @@ export default function PortalHomePage() {
       setVehBrandModel('')
       setVehMileage(0)
       setPropArea(0)
+      setPropRooms(1)
+      setPropBedrooms(0)
+      setPropBathrooms(1)
+      setPropPatio(false)
+      setPropGarage(false)
+      setPropConstructionYears(0)
+      setPropHasPlans(true)
+      setPropTaxesUpToDate(true)
+      setPropMortgageEligible(true)
+      setValResult(null)
     }, 2000)
   }
 
@@ -900,6 +924,49 @@ export default function PortalHomePage() {
                     <Label htmlFor="propGarage" className="text-xs font-medium cursor-pointer">¿Tiene Cochera?</Label>
                   </div>
                 </div>
+
+                <div className="space-y-1.5 pt-2 border-t border-border/50">
+                  <Label>Años de Construcción (Antigüedad)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={propConstructionYears}
+                    onChange={(e) => setPropConstructionYears(parseInt(e.target.value) || 0)}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-2 p-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propHasPlans"
+                      type="checkbox"
+                      checked={propHasPlans}
+                      onChange={(e) => setPropHasPlans(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propHasPlans" className="text-xs font-medium cursor-pointer">Planos de mensura hechos y no vencidos</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propTaxesUpToDate"
+                      type="checkbox"
+                      checked={propTaxesUpToDate}
+                      onChange={(e) => setPropTaxesUpToDate(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propTaxesUpToDate" className="text-xs font-medium cursor-pointer">Impuestos (Rentas, Municipal) al día</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="propMortgageEligible"
+                      type="checkbox"
+                      checked={propMortgageEligible}
+                      onChange={(e) => setPropMortgageEligible(e.target.checked)}
+                      className="w-4 h-4 text-emerald-500 rounded focus:ring-emerald-500"
+                    />
+                    <Label htmlFor="propMortgageEligible" className="text-xs font-medium cursor-pointer">Apto para crédito hipotecario</Label>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -913,7 +980,26 @@ export default function PortalHomePage() {
                   color="text-emerald-400"
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground block italic pt-1">
+              
+              {valResult && (
+                <div className="pt-2 mt-2 border-t border-emerald-500/10">
+                  <div className="flex justify-between items-center mb-1 text-left">
+                    <span className="text-xs text-muted-foreground font-semibold">Facilidad de Venta:</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                      valResult.label === 'Alta' ? 'bg-emerald-500/20 text-emerald-400' :
+                      valResult.label === 'Media' ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-red-500/20 text-red-400'
+                    }`}>
+                      {valResult.label} ({valResult.score}/100)
+                    </span>
+                  </div>
+                  <ul className="text-[10px] text-muted-foreground list-disc pl-4 space-y-0.5 mt-2 text-left">
+                    {valResult.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <span className="text-[10px] text-muted-foreground block italic pt-3">
                 La cotización real final puede variar y está sujeta a revisión ocular por un gestor.
               </span>
             </div>
