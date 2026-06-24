@@ -65,7 +65,7 @@ export default function CreditosPage() {
       const updated = credits.find(c => c.id === selectedCredit.id)
       setSelectedCredit(updated || null)
     }
-  }, [credits])
+  }, [credits]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

@@ -179,7 +179,7 @@ export default function PublicSigningPage() {
     }
 
     fetchContract()
-  }, [uuid])
+  }, [uuid, supabase])
 
   // Clear signature canvas
   const handleClear = () => {

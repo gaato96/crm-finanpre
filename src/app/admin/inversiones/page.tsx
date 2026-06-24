@@ -229,27 +229,38 @@ export default function InversionesPage() {
   async function handleSaveDraft() {
     if (!selectedClientId || !capitalNum || !rateNum) return
     setSubmitting(true)
+
+    const insertData: any = {
+      client_id: selectedClientId,
+      asset_id: selectedAssetId || null,
+      initial_capital: capitalNum,
+      current_capital: capitalNum,
+      currency,
+      monthly_rate: rateNum,
+      start_date: startDate,
+      end_date: endDate,
+      status: 'borrador',
+      template_id: selectedTemplateId || null,
+    }
+
+    if (selectedAssetId) {
+      insertData.consignacion_dias = consignacionDias
+      insertData.consignacion_inicio = consignacionInicio
+      insertData.consignacion_fin = startDate
+    }
+
     const { data: contract, error } = await supabase
       .from('contracts')
-      .insert({
-        client_id: selectedClientId,
-        asset_id: selectedAssetId || null,
-        initial_capital: capitalNum,
-        current_capital: capitalNum,
-        currency,
-        monthly_rate: rateNum,
-        start_date: startDate,
-        end_date: endDate,
-        status: 'borrador',
-        template_id: selectedTemplateId || null,
-        consignacion_dias: selectedAssetId ? consignacionDias : null,
-        consignacion_inicio: selectedAssetId ? consignacionInicio : null,
-        consignacion_fin: selectedAssetId ? startDate : null,
-      })
+      .insert(insertData)
       .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
       .single()
+
     setSubmitting(false)
-    if (!error && contract) {
+
+    if (error) {
+      alert('Error al guardar borrador: ' + error.message)
+      console.error('Error al guardar borrador:', error)
+    } else if (contract) {
       setSavedContract(contract as ContractWithProfile)
       setSigningLink('')
       await fetchContracts()
@@ -263,26 +274,35 @@ export default function InversionesPage() {
     let contractData = savedContract
 
     if (!contractData) {
+      const insertData: any = {
+        client_id: selectedClientId,
+        asset_id: selectedAssetId || null,
+        initial_capital: capitalNum,
+        current_capital: capitalNum,
+        currency,
+        monthly_rate: rateNum,
+        start_date: startDate,
+        end_date: endDate,
+        status: 'enviado',
+        template_id: selectedTemplateId || null,
+      }
+
+      if (selectedAssetId) {
+        insertData.consignacion_dias = consignacionDias
+        insertData.consignacion_inicio = consignacionInicio
+        insertData.consignacion_fin = startDate
+      }
+
       const { data: inserted, error } = await supabase
         .from('contracts')
-        .insert({
-          client_id: selectedClientId,
-          asset_id: selectedAssetId || null,
-          initial_capital: capitalNum,
-          current_capital: capitalNum,
-          currency,
-          monthly_rate: rateNum,
-          start_date: startDate,
-          end_date: endDate,
-          status: 'enviado',
-          template_id: selectedTemplateId || null,
-          consignacion_dias: selectedAssetId ? consignacionDias : null,
-          consignacion_inicio: selectedAssetId ? consignacionInicio : null,
-          consignacion_fin: selectedAssetId ? startDate : null,
-        })
+        .insert(insertData)
         .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
         .single()
-      if (!error && inserted) {
+
+      if (error) {
+        alert('Error al enviar contrato al cliente: ' + error.message)
+        console.error('Error al insertar contrato para envío:', error)
+      } else if (inserted) {
         contractData = inserted as ContractWithProfile
       }
     } else {
@@ -292,7 +312,13 @@ export default function InversionesPage() {
         .eq('id', contractData.id)
         .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
         .single()
-      if (!error && updated) contractData = updated as ContractWithProfile
+
+      if (error) {
+        alert('Error al enviar contrato al cliente: ' + error.message)
+        console.error('Error al actualizar estado del contrato para envío:', error)
+      } else if (updated) {
+        contractData = updated as ContractWithProfile
+      }
     }
 
     setSubmitting(false)
