@@ -33,7 +33,7 @@ import { formatDate } from '@/lib/helpers'
 type SellerProfile = {
   id: string
   full_name: string
-  dni: string
+  cuit: string
   phone: string | null
   email: string | null
   created_at: string
@@ -49,7 +49,7 @@ export default function VendedoresPage() {
 
   // Form states
   const [fullName, setFullName] = useState('')
-  const [dni, setDni] = useState('')
+  const [cuit, setCuit] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -84,7 +84,7 @@ export default function VendedoresPage() {
       email,
       password,
       full_name: fullName,
-      dni,
+      cuit,
       phone: phone || undefined,
     })
 
@@ -96,7 +96,7 @@ export default function VendedoresPage() {
 
     setDialogOpen(false)
     setFullName('')
-    setDni('')
+    setCuit('')
     setPhone('')
     setEmail('')
     setPassword('')
@@ -119,7 +119,7 @@ export default function VendedoresPage() {
     const term = search.toLowerCase()
     return (
       s.full_name.toLowerCase().includes(term) ||
-      s.dni.toLowerCase().includes(term) ||
+      s.cuit.toLowerCase().includes(term) ||
       (s.email ?? '').toLowerCase().includes(term)
     )
   })
@@ -170,13 +170,13 @@ export default function VendedoresPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="dni">DNI</Label>
+                  <Label htmlFor="cuit">CUIT</Label>
                   <Input
-                    id="dni"
+                    id="cuit"
                     required
-                    placeholder="38456789"
-                    value={dni}
-                    onChange={(e) => setDni(e.target.value)}
+                    placeholder="20123456789"
+                    value={cuit}
+                    onChange={(e) => setCuit(e.target.value)}
                     className="bg-input/50"
                   />
                 </div>
@@ -297,7 +297,7 @@ export default function VendedoresPage() {
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase pl-4">Vendedor</TableHead>
-                <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden sm:table-cell">DNI</TableHead>
+                <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden sm:table-cell">CUIT</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden md:table-cell">Teléfono</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase hidden lg:table-cell">Fecha Alta</TableHead>
                 <TableHead className="text-muted-foreground font-semibold text-xs uppercase text-right pr-4">Acciones</TableHead>
@@ -323,7 +323,7 @@ export default function VendedoresPage() {
                   <TableCell className="font-mono text-sm hidden sm:table-cell">
                     <span className="flex items-center gap-1">
                       <Fingerprint className="w-3.5 h-3.5 text-muted-foreground" />
-                      {seller.dni}
+                      {seller.cuit}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground hidden md:table-cell">

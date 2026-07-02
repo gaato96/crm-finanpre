@@ -4,7 +4,7 @@ export type ClientType = 'investor' | 'borrower' | 'both'
 export interface Profile {
   id: string
   full_name: string
-  dni: string
+  cuit: string
   phone: string | null
   email: string | null
   address: string | null
@@ -13,6 +13,12 @@ export interface Profile {
   client_type: ClientType
   trust_level: number // 0–5, pasos de 0.5
   created_at: string
+  credit_scoring_report?: string | null
+  credit_scoring_recommendation?: string | null
+  credit_scoring_limit?: number | null
+  cost_of_living?: number | null
+  bcra_raw_report?: string | null
+  credit_scoring_updated_at?: string | null
 }
 
 // ──────────────────────────────────────────

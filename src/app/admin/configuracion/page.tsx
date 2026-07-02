@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Plus,
   Trash2,
+  Percent,
 } from 'lucide-react'
 
 export default function ConfiguracionPage() {
@@ -29,21 +30,35 @@ export default function ConfiguracionPage() {
   const [newZoneName, setNewZoneName] = useState('')
   const [newZonePrice, setNewZonePrice] = useState('')
 
+  // New configurations
+  const [bcraYield, setBcraYield] = useState<number>(40)
+  const [bankDetails, setBankDetails] = useState({
+    banco: 'Banco Galicia',
+    cbu: '0070089020000000001234',
+    alias: 'FINANPRE.INVERSION',
+    titular: 'FinanPre S.A.',
+    cuit: '30-71700000-0'
+  })
+
   const supabase = createClient()
 
   useEffect(() => {
     const fetchConfig = async () => {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'valuation_config')
-        .single()
+      const [valRes, bcraRes, bankRes] = await Promise.all([
+        supabase.from('system_settings').select('value').eq('key', 'valuation_config').maybeSingle(),
+        supabase.from('system_settings').select('value').eq('key', 'bcra_yield_config').maybeSingle(),
+        supabase.from('system_settings').select('value').eq('key', 'bank_transfer_details').maybeSingle(),
+      ])
 
-      if (error) {
-        console.warn('Config not found or RLS issue, using defaults:', error.message)
-      } else if (data && data.value) {
-        setConfig(data.value as ValuationConfig)
+      if (valRes.data && valRes.data.value) {
+        setConfig(valRes.data.value as ValuationConfig)
+      }
+      if (bcraRes.data && bcraRes.data.value) {
+        setBcraYield((bcraRes.data.value as any).rendimiento_minimo_anual || 40)
+      }
+      if (bankRes.data && bankRes.data.value) {
+        setBankDetails(bankRes.data.value as any)
       }
       setLoading(false)
     }
@@ -55,16 +70,26 @@ export default function ConfiguracionPage() {
     setSaving(true)
     setStatus(null)
 
-    const { error } = await supabase
-      .from('system_settings')
-      .upsert({
+    const [valErr, bcraErr, bankErr] = await Promise.all([
+      supabase.from('system_settings').upsert({
         key: 'valuation_config',
         value: config,
         updated_at: new Date().toISOString(),
+      }),
+      supabase.from('system_settings').upsert({
+        key: 'bcra_yield_config',
+        value: { rendimiento_minimo_anual: Number(bcraYield) || 40 },
+        updated_at: new Date().toISOString(),
+      }),
+      supabase.from('system_settings').upsert({
+        key: 'bank_transfer_details',
+        value: bankDetails,
+        updated_at: new Date().toISOString(),
       })
+    ])
 
-    if (error) {
-      setStatus({ type: 'error', message: 'Error al guardar los ajustes: ' + error.message })
+    if (valErr.error || bcraErr.error || bankErr.error) {
+      setStatus({ type: 'error', message: 'Error al guardar los ajustes.' })
     } else {
       setStatus({ type: 'success', message: 'Ajustes guardados correctamente.' })
       setTimeout(() => setStatus(null), 3000)
@@ -522,6 +547,95 @@ export default function ConfiguracionPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* BCRA and Bank Details Configuration */}
+      <Card className="glass-card mt-6">
+        <CardHeader className="border-b border-border/20 bg-accent/10">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Building2 className="w-5 h-5 text-emerald-400" />
+            Datos de Referencia y Transferencia Bancaria
+          </CardTitle>
+          <CardDescription>
+            Configura el rendimiento mínimo de plazos fijos del BCRA y los datos de cuenta para que los inversores realicen transferencias al firmar
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Rendimiento BCRA */}
+            <div className="space-y-4 border-b md:border-b-0 md:border-r border-border/25 pb-6 md:pb-0 pr-0 md:pr-6">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tasas del Banco Central</h4>
+              <div className="space-y-2">
+                <Label htmlFor="bcraYield">Rendimiento Mínimo Anual BCRA (%)</Label>
+                <div className="relative">
+                  <Percent className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Input
+                    id="bcraYield"
+                    type="number"
+                    value={bcraYield}
+                    onChange={(e) => setBcraYield(parseFloat(e.target.value) || 0)}
+                    className="pl-9 bg-input/50 font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-normal mt-1.5">
+                  Se utiliza para contrastar la rentabilidad de las inversiones ofrecidas frente a la de plazos fijos bancarios como sugerencia interactiva.
+                </p>
+              </div>
+            </div>
+
+            {/* Datos Bancarios */}
+            <div className="md:col-span-2 space-y-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Detalles de Cuenta para Transferencias</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="bankName">Nombre del Banco</Label>
+                  <Input
+                    id="bankName"
+                    value={bankDetails.banco}
+                    onChange={(e) => setBankDetails(p => ({ ...p, banco: e.target.value }))}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="bankOwner">Titular de Cuenta</Label>
+                  <Input
+                    id="bankOwner"
+                    value={bankDetails.titular}
+                    onChange={(e) => setBankDetails(p => ({ ...p, titular: e.target.value }))}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="bankCuit">CUIT del Titular</Label>
+                  <Input
+                    id="bankCuit"
+                    value={bankDetails.cuit}
+                    onChange={(e) => setBankDetails(p => ({ ...p, cuit: e.target.value }))}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="bankAlias">Alias de Cuenta</Label>
+                  <Input
+                    id="bankAlias"
+                    value={bankDetails.alias}
+                    onChange={(e) => setBankDetails(p => ({ ...p, alias: e.target.value }))}
+                    className="bg-input/50"
+                  />
+                </div>
+                <div className="sm:col-span-2 space-y-1.5">
+                  <Label htmlFor="bankCbu">CBU / CVU</Label>
+                  <Input
+                    id="bankCbu"
+                    value={bankDetails.cbu}
+                    onChange={(e) => setBankDetails(p => ({ ...p, cbu: e.target.value }))}
+                    className="bg-input/50 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

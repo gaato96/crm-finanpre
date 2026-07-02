@@ -107,6 +107,21 @@ export function daysRemaining(contract: Contract): number {
 }
 
 /**
+ * Ajusta una fecha para que, si cae en fin de semana (sábado o domingo),
+ * se postergue automáticamente al próximo lunes (día hábil).
+ */
+export function adjustToNextBusinessDay(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  const day = d.getDay() // 0 = Domingo, 6 = Sábado
+  if (day === 6) { // Sábado -> Lunes (+2 días)
+    d.setDate(d.getDate() + 2)
+  } else if (day === 0) { // Domingo -> Lunes (+1 día)
+    d.setDate(d.getDate() + 1)
+  }
+  return d.toISOString().split('T')[0]
+}
+
+/**
  * Formato de fecha legible.
  */
 export function formatDate(dateString: string): string {

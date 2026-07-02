@@ -18,6 +18,9 @@ import {
   PenTool,
   ShieldCheck,
   Lock,
+  Building2,
+  Copy,
+  Check,
 } from 'lucide-react'
 import {
   fillContractTemplate,
@@ -85,6 +88,12 @@ export default function PublicSigningPage() {
   // Verification checkboxes
   const [checkRead, setCheckRead] = useState(false)
   const [checkLegal, setCheckLegal] = useState(false)
+
+  // Bank transfer details (from system_settings)
+  const [bankDetails, setBankDetails] = useState<{
+    banco: string; cbu: string; alias: string; titular: string; cuit: string
+  } | null>(null)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
 
   // Signing & Submission states
   const [signing, setSigning] = useState(false)
@@ -181,6 +190,25 @@ export default function PublicSigningPage() {
     fetchContract()
   }, [uuid, supabase])
 
+  // Fetch bank transfer details
+  useEffect(() => {
+    supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'bank_transfer_details')
+      .maybeSingle()
+      .then((res: { data: { value: any } | null; error: any }) => {
+        if (res.data?.value) setBankDetails(res.data.value as any)
+      })
+  }, [supabase])
+
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(null), 2000)
+    })
+  }
+
   // Clear signature canvas
   const handleClear = () => {
     if (sigCanvasRef.current) {
@@ -205,7 +233,7 @@ export default function PublicSigningPage() {
       const variables = {
         fecha_contrato: formatDate(contract.created_at),
         nombre_cliente: contract.profiles?.full_name || '',
-        dni_cliente: contract.profiles?.dni || '',
+        dni_cliente: contract.profiles?.cuit || '',
         domicilio_cliente: contract.profiles?.address || 'No registrado',
         moneda: contract.currency === 'ARS' ? '$ ARS' : '$ USD',
         monto_inicial: formatCurrency(contract.initial_capital, contract.currency),
@@ -269,7 +297,7 @@ export default function PublicSigningPage() {
       pdf.setFontSize(10)
       pdf.setTextColor(156, 163, 175) // gray-400
       pdf.text(`Firmante: ${contract.profiles?.full_name || 'Nombre no registrado'}`, 20, 45)
-      pdf.text(`DNI: ${contract.profiles?.dni || 'DNI no registrado'}`, 20, 52)
+      pdf.text(`CUIT: ${contract.profiles?.cuit || 'CUIT no registrado'}`, 20, 52)
       pdf.text(`Fecha y Hora: ${formatDate(today.toISOString())} - ${today.toLocaleTimeString('es-AR')}`, 20, 59)
       pdf.text(`Dirección IP: ${ip}`, 20, 66)
       pdf.text(`Hash de Integridad (SHA-256): ${documentHash}`, 20, 73)
@@ -460,7 +488,7 @@ export default function PublicSigningPage() {
   const displayVariables = {
     fecha_contrato: formatDate(contract.created_at),
     nombre_cliente: contract.profiles?.full_name || '',
-    dni_cliente: contract.profiles?.dni || '',
+    dni_cliente: contract.profiles?.cuit || '',
     domicilio_cliente: contract.profiles?.address || 'No registrado',
     moneda: contract.currency === 'ARS' ? '$ ARS' : '$ USD',
     monto_inicial: formatCurrency(contract.initial_capital, contract.currency),
@@ -569,6 +597,48 @@ export default function PublicSigningPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Bank Transfer Details — only when both boxes are confirmed */}
+        {checkRead && checkLegal && bankDetails && (
+          <Card className="border border-emerald-500/40 bg-gradient-to-br from-emerald-950/60 to-slate-950/60 animate-fade-in">
+            <CardHeader className="pb-3 pt-4 px-5">
+              <CardTitle className="text-sm flex items-center gap-2 text-emerald-300">
+                <Building2 className="w-4 h-4" />
+                Datos para Realizar la Transferencia
+              </CardTitle>
+              <p className="text-[11px] text-emerald-400/70 mt-0.5">
+                Una vez firmado el contrato, transferí el capital acordado a la siguiente cuenta bancaria.
+              </p>
+            </CardHeader>
+            <CardContent className="px-5 pb-5 space-y-2">
+              {([
+                { label: 'Banco', value: bankDetails.banco, field: 'banco', mono: false },
+                { label: 'Titular', value: bankDetails.titular, field: 'titular', mono: false },
+                { label: 'CUIT del Titular', value: bankDetails.cuit, field: 'cuit', mono: false },
+                { label: 'CBU / CVU', value: bankDetails.cbu, field: 'cbu', mono: true },
+                { label: 'Alias', value: bankDetails.alias, field: 'alias', mono: true },
+              ] as { label: string; value: string; field: string; mono: boolean }[]).map(({ label, value, field, mono }) => (
+                <div key={field} className="flex items-center justify-between gap-3 py-2 border-b border-emerald-900/40 last:border-0">
+                  <div>
+                    <span className="text-[10px] text-emerald-400/60 uppercase tracking-wider block">{label}</span>
+                    <span className={`text-sm font-semibold text-slate-200 ${mono ? 'font-mono' : ''}`}>{value}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(value, field)}
+                    className="p-1.5 rounded-lg bg-emerald-900/30 border border-emerald-700/30 text-emerald-400 hover:bg-emerald-800/40 transition-colors shrink-0"
+                    title={`Copiar ${label}`}
+                  >
+                    {copiedField === field ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              ))}
+              <p className="text-[10px] text-emerald-400/50 pt-2">
+                ⚠️ Importante: El contrato se activará una vez que el administrador confirme la recepción de los fondos.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Signature Box */}
         <Card className="glass-card overflow-hidden">

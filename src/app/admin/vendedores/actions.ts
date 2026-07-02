@@ -26,7 +26,7 @@ export async function adminCreateSeller(data: {
   email: string
   password: string
   full_name: string
-  dni: string
+  cuit: string
   phone?: string
 }) {
   try {
@@ -53,13 +53,13 @@ export async function adminCreateSeller(data: {
     }
 
     // Wait a brief moment for the trigger to insert the basic profile,
-    // then upsert to overwrite and set role/dni/phone correctly.
+    // then upsert to overwrite and set role/cuit/phone correctly.
     await new Promise(resolve => setTimeout(resolve, 500))
 
     const { error: profileError } = await supabase.from('profiles').upsert({
       id: userId,
       full_name: data.full_name,
-      dni: data.dni,
+      cuit: data.cuit,
       phone: data.phone || null,
       email: data.email,
       role: 'vendedor',

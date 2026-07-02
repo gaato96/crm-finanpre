@@ -12,6 +12,7 @@ import {
   fillContractTemplate,
   numberToWords,
   formatWhatsAppUrl,
+  adjustToNextBusinessDay,
 } from '@/lib/helpers'
 import type { Contract, Profile, ContractTemplate } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -52,7 +53,7 @@ import {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 type ContractWithProfile = Contract & { 
-  profiles: { full_name: string; dni: string; id: string; phone?: string | null }
+  profiles: { full_name: string; cuit: string; id: string; phone?: string | null }
   assets_valuation?: { description: string; asset_type: string } | null
 }
 type FilterKey = 'todas' | 'activas' | 'borradores' | 'enviados' | 'pendiente_fondos' | 'consignaciones' | 'retiros' | 'vencidas'
@@ -112,6 +113,10 @@ export default function InversionesPage() {
   const [signingDialogContract, setSigningDialogContract] = useState<ContractWithProfile | null>(null)
   const [copiedSigningLink, setCopiedSigningLink] = useState(false)
 
+  // ── dolar blue & BCRA rate ────────────────────────────────────────────────
+  const [dolarBlue, setDolarBlue] = useState<number | null>(null)
+  const [bcraRate, setBcraRate] = useState<number | null>(null)
+
   // ── fetch data ────────────────────────────────────────────────────────────
   const fetchClients = useCallback(async () => {
     const { data } = await supabase
@@ -127,7 +132,7 @@ export default function InversionesPage() {
     setLoadingContracts(true)
     const { data } = await supabase
       .from('contracts')
-      .select('*, profiles(full_name, dni, id, phone), assets_valuation(description, asset_type)')
+      .select('*, profiles(full_name, cuit, id, phone), assets_valuation(description, asset_type)')
       .order('created_at', { ascending: false })
     setContracts((data || []) as ContractWithProfile[])
     setLoadingContracts(false)
@@ -165,6 +170,27 @@ export default function InversionesPage() {
       }
     }
   }, [clients])
+
+  // Fetch dolar blue and BCRA rate on mount
+  useEffect(() => {
+    fetch('https://dolarapi.com/v1/dolares')
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        const blue = data.find((d) => d.casa === 'blue')
+        if (blue) setDolarBlue(blue.venta)
+      })
+      .catch(() => {})
+
+    fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias')
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        if (data && data.length > 0) {
+          const last = data[data.length - 1]
+          setBcraRate(Number(last.valor))
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!selectedClientId) {
@@ -252,7 +278,7 @@ export default function InversionesPage() {
     const { data: contract, error } = await supabase
       .from('contracts')
       .insert(insertData)
-      .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
+      .select('*, profiles(full_name, cuit, id), assets_valuation(description, asset_type)')
       .single()
 
     setSubmitting(false)
@@ -296,7 +322,7 @@ export default function InversionesPage() {
       const { data: inserted, error } = await supabase
         .from('contracts')
         .insert(insertData)
-        .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
+        .select('*, profiles(full_name, cuit, id), assets_valuation(description, asset_type)')
         .single()
 
       if (error) {
@@ -451,7 +477,7 @@ export default function InversionesPage() {
     return fillContractTemplate(selectedTemplate.content, {
       fecha_contrato: formatDate(startDate),
       nombre_cliente: selectedClient ? selectedClient.full_name : '—',
-      dni_cliente: selectedClient ? selectedClient.dni : '—',
+      dni_cliente: selectedClient ? selectedClient.cuit : '—',
       domicilio_cliente: selectedClient ? (selectedClient.address || '—') : '—',
       moneda: currency === 'ARS' ? '$ ARS' : '$ USD',
       monto_inicial: formatCurrency(capitalNum, currency),
@@ -585,7 +611,7 @@ export default function InversionesPage() {
                           <option value="">Seleccionar inversor...</option>
                           {clients.map((c) => (
                             <option key={c.id} value={c.id}>
-                              {c.full_name} — DNI {c.dni}
+                              {c.full_name} — CUIT {c.cuit}
                             </option>
                           ))}
                         </select>
@@ -774,9 +800,17 @@ export default function InversionesPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
-                        <Percent className="w-3 h-3" />
-                        Tasa Mensual (%)
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center justify-between gap-1">
+                        <span className="flex items-center gap-1"><Percent className="w-3 h-3" /> Tasa Mensual (%)</span>
+                        {bcraRate !== null && (
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                            rateNum >= bcraRate / 12
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          }`}>
+                            BCRA: {(bcraRate / 12).toFixed(2)}%/mes
+                          </span>
+                        )}
                       </Label>
                       <input
                         type="number"
@@ -788,6 +822,11 @@ export default function InversionesPage() {
                         placeholder="3.5"
                         className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
+                      {bcraRate !== null && rateNum > 0 && rateNum < bcraRate / 12 && (
+                        <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                          ⚠ La tasa ofrecida ({rateNum}%/mes) es menor al equivalente de plazos fijos del BCRA ({(bcraRate/12).toFixed(2)}%/mes · TNA {bcraRate}%).
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -805,7 +844,7 @@ export default function InversionesPage() {
                           const newStart = e.target.value
                           setStartDate(newStart)
                           if (!selectedAssetId) {
-                            setEndDate(addDays(newStart, 30))
+                            setEndDate(adjustToNextBusinessDay(addDays(newStart, 30)))
                           }
                         }}
                         readOnly={!!selectedAssetId}
@@ -1088,7 +1127,7 @@ export default function InversionesPage() {
                                     {contract.profiles?.full_name}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
-                                    DNI {contract.profiles?.dni}
+                                    CUIT {contract.profiles?.cuit}
                                   </p>
                                   {contract.assets_valuation && (
                                     <span className="inline-flex items-center gap-1 text-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-medium">

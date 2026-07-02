@@ -40,6 +40,8 @@ import {
   Sparkles,
   CheckCircle,
   FileText,
+  DollarSign,
+  Lock,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -60,6 +62,9 @@ export default function PortalHomePage() {
   const [simulatorLoading, setSimulatorLoading] = useState(false)
   const [simulatorSuccess, setSimulatorSuccess] = useState(false)
   const [simulatorError, setSimulatorError] = useState<string | null>(null)
+
+  // Dolar Blue state
+  const [dolarBlue, setDolarBlue] = useState<number | null>(null)
 
   // Form states
   const [valType, setValType] = useState<'vehiculo' | 'inmueble'>('vehiculo')
@@ -185,6 +190,17 @@ export default function PortalHomePage() {
     fetchAnnouncements()
     fetchValuationConfig()
   }, [fetchContracts, fetchAnnouncements, fetchValuationConfig])
+
+  // Fetch Dolar Blue on mount
+  useEffect(() => {
+    fetch('https://dolarapi.com/v1/dolares')
+      .then((r) => r.json())
+      .then((arr: any[]) => {
+        const blue = arr.find((d) => d.casa === 'blue')
+        if (blue) setDolarBlue(blue.venta)
+      })
+      .catch(() => {})
+  }, [])
 
   // Smooth real-time update ticker (runs every 100ms)
   const updateRealtimeBalances = useCallback(() => {
@@ -492,6 +508,16 @@ export default function PortalHomePage() {
                   </span>
                 </p>
               </div>
+              {dolarBlue !== null && tickerUSD.total > 0 && (
+                <div className="flex items-center justify-between pt-2 border-t border-border/20">
+                  <span className="text-[10px] text-blue-400/70 font-medium uppercase tracking-wider flex items-center gap-1">
+                    <DollarSign className="w-3 h-3" /> Blue • Venta ${dolarBlue.toLocaleString('es-AR')}
+                  </span>
+                  <span className="text-xs font-semibold text-blue-300">
+                    ≈ {formatCurrency(tickerUSD.total * dolarBlue, 'ARS')}
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -644,21 +670,38 @@ export default function PortalHomePage() {
                     </div>
 
                     {/* Withdrawal Button (Full Width) */}
-                    {contract.status === 'activo' && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleRequestWithdrawal(contract.id)}
-                        disabled={submitting === contract.id}
-                        className="w-full bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold gap-2 text-xs h-9 rounded-lg mt-2 transition-all duration-200"
-                      >
-                        {submitting === contract.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <ArrowDownLeft className="w-3.5 h-3.5 text-slate-950" />
-                        )}
-                        Solicitar Retiro
-                      </Button>
-                    )}
+                    {contract.status === 'activo' && (() => {
+                      const days = daysRemaining(contract)
+                      const isBlocked = days <= 12
+                      return isBlocked ? (
+                        <div className="w-full mt-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 flex items-start gap-2">
+                          <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-xs font-semibold text-amber-300">
+                              Retiro bloqueado – {days} días al vencimiento
+                            </p>
+                            <p className="text-[10px] text-amber-400/70 mt-0.5">
+                              No se puede solicitar el retiro cuando faltan 12 días o menos para el vencimiento.
+                              Al vencer, el capital se reinvertirá automáticamente con interés compuesto.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => handleRequestWithdrawal(contract.id)}
+                          disabled={submitting === contract.id}
+                          className="w-full bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold gap-2 text-xs h-9 rounded-lg mt-2 transition-all duration-200"
+                        >
+                          {submitting === contract.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <ArrowDownLeft className="w-3.5 h-3.5 text-slate-950" />
+                          )}
+                          Solicitar Retiro
+                        </Button>
+                      )
+                    })()}
                   </CardContent>
                 </Card>
               )

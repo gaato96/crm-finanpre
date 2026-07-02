@@ -103,7 +103,7 @@ function getAvatarGradient(type: ClientType): string {
 // ─────────────────────────────────────────────────────────
 interface NewClientForm {
   full_name: string
-  dni: string
+  cuit: string
   phone: string
   email: string
   address: string
@@ -115,7 +115,7 @@ interface NewClientForm {
 
 const defaultForm: NewClientForm = {
   full_name: '',
-  dni: '',
+  cuit: '',
   phone: '',
   email: '',
   address: '',
@@ -141,7 +141,7 @@ export default function ClientesPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<ClientWithData | null>(null)
   const [editForm, setEditForm] = useState<Omit<NewClientForm, 'password'>>({
-    full_name: '', dni: '', phone: '', email: '', address: '', client_type: 'investor', trust_level: 3, notes: '',
+    full_name: '', cuit: '', phone: '', email: '', address: '', client_type: 'investor', trust_level: 3, notes: '',
   })
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
@@ -192,7 +192,7 @@ export default function ClientesPage() {
     const term = search.toLowerCase()
     const matchSearch =
       c.full_name.toLowerCase().includes(term) ||
-      c.dni.toLowerCase().includes(term) ||
+      c.cuit.toLowerCase().includes(term) ||
       (c.email ?? '').toLowerCase().includes(term)
     const matchType = filterType === 'todos' || c.client_type === filterType
     return matchSearch && matchType
@@ -213,7 +213,7 @@ export default function ClientesPage() {
       email: form.email,
       password: form.password,
       full_name: form.full_name,
-      dni: form.dni,
+      cuit: form.cuit,
       phone: form.phone || undefined,
       address: form.address || undefined,
       client_type: form.client_type,
@@ -238,7 +238,7 @@ export default function ClientesPage() {
     setEditingClient(client)
     setEditForm({
       full_name: client.full_name,
-      dni: client.dni,
+      cuit: client.cuit,
       phone: client.phone || '',
       email: client.email || '',
       address: client.address || '',
@@ -258,7 +258,7 @@ export default function ClientesPage() {
     const supabase = createClient()
     const { error } = await supabase.from('profiles').update({
       full_name: editForm.full_name,
-      dni: editForm.dni,
+      cuit: editForm.cuit,
       phone: editForm.phone || null,
       email: editForm.email || null,
       address: editForm.address || null,
@@ -350,13 +350,13 @@ export default function ClientesPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-                    DNI <span className="text-red-400">*</span>
+                    CUIT <span className="text-red-400">*</span>
                   </Label>
                   <Input
-                    value={form.dni}
-                    onChange={(e) => setField('dni', e.target.value)}
+                    value={form.cuit}
+                    onChange={(e) => setField('cuit', e.target.value)}
                     required
-                    placeholder="12345678"
+                    placeholder="20123456789"
                     className="bg-input/50"
                   />
                 </div>
@@ -514,7 +514,7 @@ export default function ClientesPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nombre, DNI o email..."
+                placeholder="Buscar por nombre, CUIT o email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-10 bg-input/50"
@@ -618,7 +618,7 @@ export default function ClientesPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-sm truncate">{client.full_name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">DNI {client.dni}</p>
+                          <p className="text-xs text-muted-foreground font-mono">CUIT {client.cuit}</p>
                         </div>
                       </div>
                     </TableCell>
@@ -778,8 +778,8 @@ export default function ClientesPage() {
                 <Input value={editForm.full_name} onChange={(e) => setEditForm(p => ({ ...p, full_name: e.target.value }))} required className="bg-input/50" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">DNI</Label>
-                <Input value={editForm.dni} onChange={(e) => setEditForm(p => ({ ...p, dni: e.target.value }))} required className="bg-input/50" />
+                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">CUIT</Label>
+                <Input value={editForm.cuit} onChange={(e) => setEditForm(p => ({ ...p, cuit: e.target.value }))} required className="bg-input/50" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

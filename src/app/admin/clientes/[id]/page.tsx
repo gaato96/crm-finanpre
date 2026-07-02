@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { StarRating } from '@/components/StarRating'
 import { adminResetPassword } from './actions'
+import { generateCreditScoring } from '../actions'
 import { Textarea } from '@/components/ui/textarea'
 import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
 
@@ -41,6 +42,13 @@ export default function ClientDetailPage() {
   const [resetLoading, setResetLoading] = useState(false)
   const [resetStatus, setResetStatus] = useState<{ error?: string; success?: boolean; message?: string } | null>(null)
   const [copiedContractId, setCopiedContractId] = useState<string | null>(null)
+
+  // Credit scoring form states
+  const [bcraReport, setBcraReport] = useState('')
+  const [costOfLiving, setCostOfLiving] = useState('')
+  const [scoringLoading, setScoringLoading] = useState(false)
+  const [scoringError, setScoringError] = useState<string | null>(null)
+  const [scoringSuccess, setScoringSuccess] = useState(false)
 
   const supabase = createClient()
 
@@ -140,6 +148,10 @@ export default function ClientDetailPage() {
     ])
 
     setProfile(profileRes.data)
+    if (profileRes.data) {
+      setBcraReport(profileRes.data.bcra_raw_report || '')
+      setCostOfLiving(profileRes.data.cost_of_living?.toString() || '')
+    }
     setContracts(contractsRes.data || [])
     setAssets(assetsRes.data || [])
     setCredits((creditsRes.data || []) as (Credit & { credit_installments: CreditInstallment[] })[])
@@ -337,8 +349,8 @@ export default function ClientDetailPage() {
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-accent/50">
                 <IdCard className="w-4 h-4 text-muted-foreground" />
                 <div>
-                  <p className="text-xs text-muted-foreground">DNI</p>
-                  <p className="text-sm font-medium">{profile.dni}</p>
+                  <p className="text-xs text-muted-foreground">CUIT</p>
+                  <p className="text-sm font-medium">{profile.cuit}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-accent/50">
@@ -405,7 +417,7 @@ export default function ClientDetailPage() {
         {/* Right Column: Tabs */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="inversiones" className="space-y-4">
-            <TabsList className="bg-accent/50 p-1 w-full grid grid-cols-3">
+            <TabsList className="bg-accent/50 p-1 w-full grid grid-cols-4">
               <TabsTrigger value="inversiones" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
                 <TrendingUp className="w-3.5 h-3.5" /> Inversiones
               </TabsTrigger>
@@ -414,6 +426,9 @@ export default function ClientDetailPage() {
               </TabsTrigger>
               <TabsTrigger value="creditos" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
                 <CreditCard className="w-3.5 h-3.5" /> Créditos
+              </TabsTrigger>
+              <TabsTrigger value="scoring" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
+                <Sparkles className="w-3.5 h-3.5" /> Scoring IA
               </TabsTrigger>
             </TabsList>
 
@@ -694,6 +709,161 @@ export default function ClientDetailPage() {
                   </Card>
                 ))
               )}
+            </TabsContent>
+
+            {/* Scoring Crediticio Tab */}
+            <TabsContent value="scoring" className="space-y-4">
+              <Card className="glass-card">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-emerald-400" />
+                      Scoring Crediticio e Informe de IA
+                    </CardTitle>
+                    {profile.credit_scoring_updated_at && (
+                      <Badge variant="outline" className="text-xs text-muted-foreground">
+                        Actualizado: {formatDate(profile.credit_scoring_updated_at)}
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Left: Input Form */}
+                    <div className="space-y-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground uppercase font-semibold">
+                          Costo de Vida Estimado (Mensual ARS)
+                        </Label>
+                        <Input
+                          type="number"
+                          placeholder="Ej. 600000"
+                          value={costOfLiving}
+                          onChange={(e) => setCostOfLiving(e.target.value)}
+                          className="bg-input/50"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <Label className="text-xs text-muted-foreground uppercase font-semibold">
+                            Informe Central de Deudores BCRA
+                          </Label>
+                          <a
+                            href="https://www.bcra.gob.ar/situacion-crediticia/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-primary hover:underline flex items-center gap-1"
+                          >
+                            Ir a Central BCRA <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        </div>
+                        <Textarea
+                          placeholder="Pegue aquí el texto copiado de la consulta de situación crediticia del BCRA por CUIT..."
+                          value={bcraReport}
+                          onChange={(e) => setBcraReport(e.target.value)}
+                          className="h-44 bg-input/50 font-mono text-xs"
+                        />
+                      </div>
+
+                      <Button
+                        onClick={async () => {
+                          if (!costOfLiving) {
+                            alert("Por favor ingrese el costo de vida estimado.");
+                            return;
+                          }
+                          setScoringLoading(true);
+                          setScoringError(null);
+                          setScoringSuccess(false);
+                          
+                          const res = await generateCreditScoring(
+                            clientId,
+                            bcraReport,
+                            parseFloat(costOfLiving) || 0
+                          );
+
+                          if (res.error) {
+                            setScoringError(res.error);
+                          } else {
+                            setScoringSuccess(true);
+                            fetchData(); // reload profile details to show new scoring
+                          }
+                          setScoringLoading(false);
+                        }}
+                        disabled={scoringLoading}
+                        className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold gap-2"
+                      >
+                        {scoringLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin animate-pulse" />
+                            Generando Reporte y Límites...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            Generar Scoring con IA
+                          </>
+                        )}
+                      </Button>
+
+                      {scoringError && (
+                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+                          {scoringError}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: Results Display */}
+                    <div className="space-y-4 p-4 rounded-xl border border-border/40 bg-accent/10 min-h-[300px] flex flex-col justify-between">
+                      {profile.credit_scoring_updated_at ? (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="p-3 rounded-xl bg-slate-950/40 border border-border/20">
+                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">
+                                Límite a Prestar Sugerido
+                              </span>
+                              <span className="text-xl font-bold text-emerald-glow mt-1 block">
+                                {profile.credit_scoring_limit ? formatCurrency(Number(profile.credit_scoring_limit), 'ARS') : '—'}
+                              </span>
+                            </div>
+                            <div className="p-3 rounded-xl bg-slate-950/40 border border-border/20">
+                              <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">
+                                Recomendación
+                              </span>
+                              <span className="text-xs font-semibold text-primary mt-1.5 block leading-tight">
+                                {profile.credit_scoring_recommendation || '—'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground uppercase font-semibold">
+                              Análisis de Riesgo e Informe de IA
+                            </span>
+                            <div className="p-3 rounded-xl bg-slate-950/50 border border-border/20 max-h-56 overflow-y-auto text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
+                              {profile.credit_scoring_report}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground p-6">
+                          <Sparkles className="w-10 h-10 text-muted-foreground/20 mb-3 animate-pulse" />
+                          <p className="text-sm font-medium">Aún no se ha realizado el Scoring</p>
+                          <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs">
+                            Cargue el informe del BCRA y el costo de vida a la izquierda para generar la recomendación de crédito con Inteligencia Artificial.
+                          </p>
+                        </div>
+                      )}
+                      
+                      {!process.env.GEMINI_API_KEY && !profile.credit_scoring_updated_at && (
+                        <div className="p-2.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-400 text-center leading-normal">
+                          💡 La variable GEMINI_API_KEY no está configurada en .env.local. El sistema utilizará la simulación basada en reglas para procesar el informe.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>

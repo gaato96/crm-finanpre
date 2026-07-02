@@ -229,7 +229,7 @@ export default function CreditosPage() {
                   <Label>Cliente Deudor</Label>
                   <select value={formClient} onChange={e => setFormClient(e.target.value)} required className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm">
                     <option value="">Seleccionar...</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.full_name} — {c.dni}</option>)}
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.full_name} — {(c as any).cuit || c.full_name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">

@@ -19,6 +19,8 @@ import {
   CreditCard,
   Bell,
   Package,
+  Percent,
+  TrendingDown,
 } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -41,6 +43,8 @@ interface DashboardData {
 export default function AdminDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [dolarBlue, setDolarBlue] = useState<number | null>(null)
+  const [bcraRate, setBcraRate] = useState<number | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -63,6 +67,23 @@ export default function AdminDashboardPage() {
     }
 
     fetchData()
+  }, [])
+
+  useEffect(() => {
+    fetch('https://dolarapi.com/v1/dolares')
+      .then((r) => r.json())
+      .then((arr: any[]) => {
+        const blue = arr.find((d) => d.casa === 'blue')
+        if (blue) setDolarBlue(blue.venta)
+      })
+      .catch(() => {})
+
+    fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias')
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        if (data && data.length > 0) setBcraRate(Number(data[data.length - 1].valor))
+      })
+      .catch(() => {})
   }, [])
 
   if (loading || !data) {
@@ -107,6 +128,51 @@ export default function AdminDashboardPage() {
       <div>
         <h1 className="text-2xl lg:text-3xl font-bold">Dashboard Global</h1>
         <p className="text-muted-foreground mt-1">Resumen en tiempo real de la operación financiera</p>
+      </div>
+
+      {/* Dolar Blue + BCRA Widget */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card className="glass-card border-blue-500/20 bg-gradient-to-br from-blue-950/40 to-blue-900/10">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-400/70">Dólar Blue • Venta</p>
+                <p className="text-3xl font-bold mt-1 text-blue-300">
+                  {dolarBlue !== null ? `$${dolarBlue.toLocaleString('es-AR')}` : <span className="text-xl text-muted-foreground">Cargando...</span>}
+                </p>
+                {dolarBlue !== null && liquidezUSD > 0 && (
+                  <p className="text-xs text-blue-400/80 mt-0.5">
+                    USD {formatCurrency(liquidezUSD,'USD')} ≈ ARS {formatCurrency(liquidezUSD * dolarBlue, 'ARS')}
+                  </p>
+                )}
+              </div>
+              <div className="p-3 rounded-xl bg-blue-500/15">
+                <DollarSign className="w-6 h-6 text-blue-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card border-emerald-500/20 bg-gradient-to-br from-emerald-950/40 to-emerald-900/10">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400/70">Rendimiento BCRA • TNA Plazo Fijo</p>
+                <p className="text-3xl font-bold mt-1 text-emerald-300">
+                  {bcraRate !== null ? `${bcraRate}%` : <span className="text-xl text-muted-foreground">Cargando...</span>}
+                </p>
+                {bcraRate !== null && (
+                  <p className="text-xs text-emerald-400/80 mt-0.5">
+                    Equivale a {(bcraRate / 12).toFixed(2)}% mensual • argentinadatos.com
+                  </p>
+                )}
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-500/15">
+                <Percent className="w-6 h-6 text-emerald-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* KPI Cards */}
