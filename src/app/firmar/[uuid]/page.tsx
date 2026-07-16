@@ -39,7 +39,7 @@ const DEFAULT_HTML_TEMPLATE = `
 <div class="contract-preview p-6 text-slate-300 font-sans leading-relaxed space-y-6">
   <div class="text-center border-b border-slate-800 pb-6">
     <h1 class="text-xl font-bold tracking-wider text-emerald-400">CONTRATO DE INVERSIÓN DIGITAL</h1>
-    <p class="text-xs text-slate-500 mt-1">FinanPre · Plataforma de Inversiones</p>
+    <p class="text-xs text-slate-500 mt-1">RENDIMAX · Plataforma de Inversiones</p>
   </div>
   
   <div class="space-y-4 text-sm">
@@ -47,7 +47,7 @@ const DEFAULT_HTML_TEMPLATE = `
     
     <h2 class="text-base font-bold text-slate-200 mt-6 border-b border-slate-800/50 pb-2">1. LAS PARTES</h2>
     <p>Por un lado, el <strong>INVERSOR</strong>, Sr./Sra. <strong>{{nombre_cliente}}</strong>, DNI <strong>{{dni_cliente}}</strong>, con domicilio en <strong>{{domicilio_cliente}}</strong>.</p>
-    <p>Y por el otro, la <strong>FINANCIERA</strong>, <strong>FinanPre</strong>, con domicilio legal en CABA, Argentina.</p>
+    <p>Y por el otro, la <strong>FINANCIERA</strong>, <strong>RENDIMAX</strong>, con domicilio legal en CABA, Argentina.</p>
     
     <h2 class="text-base font-bold text-slate-200 mt-6 border-b border-slate-800/50 pb-2">2. OBJETO DE LA INVERSIÓN</h2>
     <p>El INVERSOR aporta la suma de <strong>{{moneda}} {{monto_inicial}}</strong> (monto en letras: <em>{{monto_letras}}</em>) en concepto de capital de inversión.</p>
@@ -55,7 +55,7 @@ const DEFAULT_HTML_TEMPLATE = `
     
     <h2 class="text-base font-bold text-slate-200 mt-6 border-b border-slate-800/50 pb-2">3. PLAZO Y LIQUIDACIÓN</h2>
     <p>El plazo establecido de la inversión inicia el <strong>{{fecha_inicio}}</strong>. Las ganancias de interés se acumularán al capital inicial de forma compuesta cada 30 días.</p>
-    <p>El INVERSOR podrá solicitar el retiro de su capital e intereses en cualquier momento desde su panel de usuario. FinanPre transferirá los fondos en un plazo no mayor a 48 horas hábiles.</p>
+    <p>El INVERSOR podrá solicitar el retiro de su capital e intereses en cualquier momento desde su panel de usuario. RENDIMAX transferirá los fondos en un plazo no mayor a 48 horas hábiles.</p>
     
     <h2 class="text-base font-bold text-slate-200 mt-6 border-b border-slate-800/50 pb-2">4. MARCO LEGAL DE FIRMA ELECTRÓNICA</h2>
     <p>Las partes acuerdan y aceptan que la firma digital/electrónica provista en este acto goza de plena validez jurídica y probatoria bajo el marco regulatorio de la Ley 25.506 de Firma Digital en la República Argentina. Ambas partes renuncian a impugnar el documento por el solo hecho de haberse formalizado por medios electrónicos.</p>
@@ -411,7 +411,7 @@ export default function PublicSigningPage() {
         <h1 className="text-xl font-bold text-white mb-2">Error en Contrato</h1>
         <p className="text-slate-400 max-w-md text-sm mb-6">{errorMsg}</p>
         <div className="text-xs text-slate-500 bg-slate-900/50 p-3 rounded-lg border border-slate-800">
-          FinanPre CRM v2.0 · Soporte administrativo
+          RENDIMAX CRM v2.0 · Soporte administrativo
         </div>
       </div>
     )
@@ -475,7 +475,7 @@ export default function PublicSigningPage() {
             )}
 
             <p className="text-[11px] text-slate-500">
-              Ya podés cerrar esta pestaña. Tu asesor de FinanPre ha sido notificado del acuerdo.
+              Ya podés cerrar esta pestaña. Tu asesor de RENDIMAX ha sido notificado del acuerdo.
             </p>
           </CardContent>
         </Card>
@@ -513,7 +513,7 @@ export default function PublicSigningPage() {
               <ShieldCheck className="w-4.5 h-4.5 text-slate-950" />
             </div>
             <div>
-              <span className="font-bold tracking-wide text-white text-sm">FinanPre Digital</span>
+              <span className="font-bold tracking-wide text-white text-sm">RENDIMAX Digital</span>
               <span className="text-[10px] text-emerald-400 block -mt-1">Acuerdos Certificados</span>
             </div>
           </div>
@@ -702,7 +702,7 @@ export default function PublicSigningPage() {
 
       {/* Footer */}
       <div className="max-w-3xl w-full mx-auto text-center pt-8 text-[10px] text-slate-600 border-t border-slate-900/50 mt-10">
-        <p>FinanPre digital compliance system v2.0</p>
+        <p>RENDIMAX digital compliance system v2.0</p>
         <p className="mt-0.5">Certificado emitido bajo estándares criptográficos SHA-256. IP registrada para auditoría legal: {ip}</p>
       </div>
     </div>

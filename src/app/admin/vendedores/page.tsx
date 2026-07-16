@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -198,7 +198,7 @@ export default function VendedoresPage() {
                   id="email"
                   type="email"
                   required
-                  placeholder="vendedor@finanpre.com"
+                  placeholder="vendedor@RENDIMAX.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="bg-input/50"

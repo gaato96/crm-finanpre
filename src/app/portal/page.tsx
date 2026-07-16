@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -418,7 +418,7 @@ export default function PortalHomePage() {
     const clientPhone = profile?.phone || 'No especificado'
     const typeLabel = valType === 'vehiculo' ? '🚗 Vehículo' : '🏢 Inmueble'
 
-    const msg = `Hola! Acabo de realizar una tasación de garantía desde el portal FinanPRE.\n\n` +
+    const msg = `Hola! Acabo de realizar una tasación de garantía desde el portal RENDIMAX.\n\n` +
       `*Cliente:* ${clientName}\n` +
       `*Teléfono:* ${clientPhone}\n` +
       `*Tipo de Activo:* ${typeLabel}\n` +
@@ -1114,7 +1114,7 @@ export default function PortalHomePage() {
                   </div>
 
                   <div className="p-3 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
-                    * Al confirmar la inversión, el contrato será generado automáticamente y se abrirá una nueva pestaña para firmar electrónicamente el contrato en el canvas de firmas de FinanPRE. Una vez firmado, recibirás la información para transferir.
+                    * Al confirmar la inversión, el contrato será generado automáticamente y se abrirá una nueva pestaña para firmar electrónicamente el contrato en el canvas de firmas de RENDIMAX. Una vez firmado, recibirás la información para transferir.
                   </div>
 
                   <div className="flex gap-3">

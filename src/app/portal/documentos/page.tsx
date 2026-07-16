@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -71,7 +71,7 @@ export default function PortalDocumentosPage() {
 
       <div className="text-center pt-4">
         <p className="text-[10px] text-muted-foreground/50">
-          Los documentos son generados automáticamente por FinanPre.
+          Los documentos son generados automáticamente por RENDIMAX.
           <br />Contactá a tu asesor para solicitar comprobantes adicionales.
         </p>
       </div>

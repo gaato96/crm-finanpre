@@ -11,13 +11,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "FinanPre — Ecosistema Digital de Inversiones",
-  description: "Plataforma integral de gestión de inversiones, activos y créditos para la financiera FinanPre. CRM administrativo y portal del inversor.",
+  title: "RENDIMAX — Ecosistema Digital de Inversiones",
+  description: "Plataforma integral de gestión de inversiones, activos y créditos. CRM administrativo y portal del inversor RENDIMAX.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "FinanPre",
+    title: "RENDIMAX",
   },
 };
 

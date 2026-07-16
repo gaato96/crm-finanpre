@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -36,8 +36,8 @@ export default function ConfiguracionPage() {
   const [bankDetails, setBankDetails] = useState({
     banco: 'Banco Galicia',
     cbu: '0070089020000000001234',
-    alias: 'FINANPRE.INVERSION',
-    titular: 'FinanPre S.A.',
+    alias: 'RENDIMAX.INVERSION',
+    titular: 'RENDIMAX S.A.',
     cuit: '30-71700000-0'
   })
   const [monthlyYield, setMonthlyYield] = useState({

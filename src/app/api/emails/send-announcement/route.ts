@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@/lib/supabase/server'
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
               <div style="color:#94a3b8;font-size:15px;line-height:1.7;white-space:pre-line;">${content}</div>
               <!-- CTA -->
               <div style="margin-top:32px;text-align:center;">
-                <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://finanpre.com.ar'}/portal" 
+                <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://RENDIMAX.com.ar'}/portal" 
                    style="display:inline-block;background:#10b981;color:#022c22;font-weight:800;font-size:14px;padding:14px 32px;border-radius:10px;text-decoration:none;">
                   Ver mi Portal →
                 </a>
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
           <tr>
             <td style="padding:24px 40px;text-align:center;">
               <p style="color:#374151;font-size:11px;margin:0;line-height:1.6;">
-                Este correo fue enviado a tu dirección registrada en FinanPRE.<br>
+                Este correo fue enviado a tu dirección registrada en RENDIMAX.<br>
                 Si tenés preguntas, contactanos por WhatsApp.
               </p>
             </td>
@@ -113,9 +113,9 @@ export async function POST(req: NextRequest) {
       if (!investor.email) continue
       try {
         const result = await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL || 'FinanPRE <noreply@finanpre.com.ar>',
+          from: process.env.RESEND_FROM_EMAIL || 'RENDIMAX <noreply@RENDIMAX.com.ar>',
           to: investor.email,
-          subject: `[FinanPRE] ${title}`,
+          subject: `[RENDIMAX] ${title}`,
           html: htmlContent,
         })
         emailResults.push({ email: investor.email, id: result.data?.id })

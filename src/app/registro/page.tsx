@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -176,7 +176,7 @@ export default function RegistroPage() {
             <TrendingUp className="w-5 h-5 text-white" />
           </div>
           <h2 className="text-2xl font-bold tracking-wider bg-gradient-to-r from-emerald-400 to-emerald-200 bg-clip-text text-transparent">
-            FinanPRE
+            RENDIMAX
           </h2>
           <p className="text-xs text-slate-400">Creá tu Cuenta de Inversor</p>
         </div>

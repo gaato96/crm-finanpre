@@ -1,4 +1,4 @@
-'use server'
+﻿'use server'
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -134,7 +134,7 @@ export async function generateCreditScoring(
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `Actúa como un analista crediticio experto para la financiera FinanPRE. Analiza el siguiente informe de la Central de Deudores del Banco Central de la República Argentina (BCRA) y los datos de costo de vida provistos por el usuario, y genera un reporte detallado en formato Markdown, y un límite de crédito recomendado (número entero en pesos ARS).\n\nINFORME BCRA:\n${bcraRawReport}\n\nCOSTO DE VIDA MENSUAL DEL CLIENTE:\n$${costOfLiving} ARS\n\nEl reporte debe incluir:\n1. Resumen de la situación crediticia actual (entidades, montos de deuda y situaciones/clasificación del 1 al 6).\n2. Análisis del riesgo crediticio cruzando la deuda declarada con su costo de vida estimado.\n3. Recomendación explícita sobre si es conveniente prestarle y por qué.\n4. Límite de crédito sugerido (monto máximo habilitado a prestar en pesos).\n\nResponde estrictamente en formato JSON con la siguiente estructura (no envíes nada más, solo el objeto JSON):\n{\n  "report": "[Contenido del reporte en Markdown]",\n  "recommendation": "[Resumen de la recomendación en una línea]",\n  "limit": [Número entero con el monto máximo sugerido a prestar en ARS]\n}`
+                text: `Actúa como un analista crediticio experto para la financiera RENDIMAX. Analiza el siguiente informe de la Central de Deudores del Banco Central de la República Argentina (BCRA) y los datos de costo de vida provistos por el usuario, y genera un reporte detallado en formato Markdown, y un límite de crédito recomendado (número entero en pesos ARS).\n\nINFORME BCRA:\n${bcraRawReport}\n\nCOSTO DE VIDA MENSUAL DEL CLIENTE:\n$${costOfLiving} ARS\n\nEl reporte debe incluir:\n1. Resumen de la situación crediticia actual (entidades, montos de deuda y situaciones/clasificación del 1 al 6).\n2. Análisis del riesgo crediticio cruzando la deuda declarada con su costo de vida estimado.\n3. Recomendación explícita sobre si es conveniente prestarle y por qué.\n4. Límite de crédito sugerido (monto máximo habilitado a prestar en pesos).\n\nResponde estrictamente en formato JSON con la siguiente estructura (no envíes nada más, solo el objeto JSON):\n{\n  "report": "[Contenido del reporte en Markdown]",\n  "recommendation": "[Resumen de la recomendación en una línea]",\n  "limit": [Número entero con el monto máximo sugerido a prestar en ARS]\n}`
               }]
             }],
             generationConfig: {

@@ -1,4 +1,4 @@
-import { type Contract } from './types'
+﻿import { type Contract } from './types'
 
 /**
  * Calcula el capital actual con interés compuesto mensual.
@@ -243,7 +243,7 @@ export function compileStructuredTemplateToHtml(contentJson: string, name: strin
 <div class="contract-preview p-6 text-slate-300 font-sans leading-relaxed space-y-6">
   <div class="text-center border-b border-slate-800 pb-6 mb-6">
     <h1 class="text-xl font-bold tracking-wider text-emerald-400">${name.toUpperCase()}</h1>
-    <p class="text-xs text-slate-500 mt-1">FinanPre · Plataforma de Inversiones</p>
+    <p class="text-xs text-slate-500 mt-1">RENDIMAX · Plataforma de Inversiones</p>
   </div>
   <div class="space-y-4 text-sm">
     <p class="mb-4 whitespace-pre-line">${data.header}</p>

@@ -59,18 +59,21 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
       {/* Background gradient elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-emerald-accent/5 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-emerald-accent/3 blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-emerald-accent/2 blur-3xl" />
+        <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-blue-accent/5 blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-blue-accent/5 blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-accent/3 blur-3xl" />
       </div>
 
       <div className="w-full max-w-md animate-fade-in relative z-10">
         {/* Logo / Brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-accent to-emerald-dim mb-4 shadow-lg shadow-emerald-accent/20">
+          <div
+            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-4"
+            style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 8px 24px rgba(59,130,246,0.35)' }}
+          >
             <TrendingUp className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold gradient-text mb-1">FinanPre</h1>
+          <h1 className="text-3xl font-bold gradient-text mb-1 tracking-widest uppercase">RENDIMAX</h1>
           <p className="text-muted-foreground text-sm">Ecosistema Digital de Inversiones</p>
         </div>
 
@@ -124,7 +127,8 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                className="w-full h-12 bg-gradient-to-r from-emerald-accent to-emerald-glow hover:from-emerald-glow hover:to-emerald-accent text-deep-blue font-semibold text-base shadow-lg shadow-emerald-accent/20 transition-all duration-300"
+                className="w-full h-12 font-semibold text-base transition-all duration-300"
+                style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 14px rgba(59,130,246,0.3)' }}
                 disabled={loading}
               >
                 {loading ? (
@@ -143,7 +147,7 @@ export default function LoginPage() {
                 ¿No tenés cuenta?{' '}
                 <span
                   onClick={() => router.push('/registro')}
-                  className="text-emerald-accent hover:underline cursor-pointer font-semibold"
+                  className="text-blue-400 hover:underline cursor-pointer font-semibold"
                 >
                   Registrate como inversor
                 </span>
@@ -158,7 +162,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground/40 mt-6">
-          © 2026 FinanPre — Diseñado por Galu Diseño Web
+          © 2026 RENDIMAX — Diseñado por Galu Diseño Web
         </p>
       </div>
     </div>

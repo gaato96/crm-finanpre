@@ -17,7 +17,6 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const { profile, signOut, loading } = useAuth()
 
-  // Guard: if an admin somehow reaches /portal, redirect to /admin
   useEffect(() => {
     if (!loading && (profile?.role === 'admin' || profile?.role === 'vendedor')) {
       router.replace('/admin')
@@ -38,38 +37,60 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col pb-20">
-      {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-xl border-b border-border/50 px-4 py-3">
-        <div className="max-w-lg mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-accent to-emerald-dim flex items-center justify-center">
+    <div
+      className="min-h-screen flex flex-col pb-20"
+      style={{ background: 'linear-gradient(160deg, #080f1a 0%, #0a1628 60%, #080f1a 100%)' }}
+    >
+      {/* Top Header — full-width, content capped at 1140px */}
+      <header
+        className="sticky top-0 z-30 border-b border-white/5 px-4 py-3"
+        style={{ background: 'rgba(8, 15, 26, 0.88)', backdropFilter: 'blur(20px)' }}
+      >
+        <div className="max-w-[1140px] mx-auto flex items-center justify-between">
+          {/* Brand */}
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg shrink-0"
+              style={{
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                boxShadow: '0 4px 14px rgba(59,130,246,0.35)',
+              }}
+            >
               <TrendingUp className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-bold gradient-text leading-none">FinanPre</p>
+              <p className="text-sm font-bold gradient-text leading-none tracking-widest uppercase">RENDIMAX</p>
               <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Portal del Inversor</p>
             </div>
           </div>
+
+          {/* User + logout */}
           <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-xs font-medium">{profile?.full_name}</p>
+            <div className="hidden sm:block text-right">
+              <p className="text-xs font-semibold text-slate-200 leading-none">{profile?.full_name}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Inversor</p>
             </div>
-            <button onClick={signOut} className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-destructive">
+            <button
+              onClick={signOut}
+              className="p-2 rounded-lg hover:bg-white/5 transition-colors text-muted-foreground hover:text-red-400"
+            >
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* Content */}
-      <main className="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
+      {/* Content — capped at 1140px */}
+      <main className="flex-1 px-4 py-6 max-w-[1140px] mx-auto w-full">
         {children}
       </main>
 
-      {/* Bottom Tab Bar (Mobile native feel) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/50 safe-area-bottom">
-        <div className="max-w-lg mx-auto flex">
+      {/* Bottom Tab Bar */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/5 safe-area-bottom"
+        style={{ background: 'rgba(8, 15, 26, 0.94)', backdropFilter: 'blur(20px)' }}
+      >
+        <div className="max-w-[1140px] mx-auto flex">
           {tabs.map((tab) => {
             const Icon = tab.icon
             const active = isActive(tab.href)
@@ -77,13 +98,18 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={`flex-1 flex flex-col items-center gap-0.5 py-3 transition-colors ${
-                  active ? 'text-primary' : 'text-muted-foreground'
+                className={`flex-1 flex flex-col items-center gap-0.5 py-3 transition-all ${
+                  active ? 'text-blue-400' : 'text-muted-foreground hover:text-slate-300'
                 }`}
               >
-                <Icon className={`w-5 h-5 ${active ? 'text-primary' : ''}`} />
+                <Icon className={`w-5 h-5 ${active ? 'text-blue-400' : ''}`} />
                 <span className="text-[10px] font-medium">{tab.label}</span>
-                {active && <div className="w-1 h-1 rounded-full bg-primary mt-0.5" />}
+                {active && (
+                  <div
+                    className="w-5 h-0.5 rounded-full mt-0.5"
+                    style={{ background: 'linear-gradient(90deg, #3b82f6, #60a5fa)' }}
+                  />
+                )}
               </Link>
             )
           })}

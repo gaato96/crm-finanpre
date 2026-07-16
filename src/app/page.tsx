@@ -107,28 +107,31 @@ export default function HomePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin" />
-          <p className="text-muted-foreground text-sm">Cargando FinanPre...</p>
+          <div className="h-12 w-12 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+          <p className="text-muted-foreground text-sm">Cargando RENDIMAX...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
+    <div className="min-h-screen bg-[#080f1a] text-slate-100 flex flex-col selection:bg-blue-500/30 selection:text-blue-300">
       {/* Background gradients for visual depth */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute top-1/3 right-1/4 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-1/3 right-1/4 w-[600px] h-[600px] bg-blue-400/4 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Header */}
       <header className="sticky top-0 z-50 w-full glass-card border-b border-white/5 px-4 lg:px-8 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 14px rgba(59,130,246,0.3)' }}
+            >
               <TrendingUp className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-wider bg-gradient-to-r from-emerald-400 to-emerald-200 bg-clip-text text-transparent">
-              FinanPRE
+            <span className="text-xl font-bold tracking-widest uppercase gradient-text">
+              RENDIMAX
             </span>
           </div>
 
@@ -136,7 +139,8 @@ export default function HomePage() {
             {isLoggedIn ? (
               <Button 
                 onClick={() => router.push(role === 'admin' || role === 'vendedor' ? '/admin' : '/portal')}
-                className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold shadow-lg shadow-emerald-500/20 transition-all text-sm"
+                className="font-semibold transition-all text-sm"
+                style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 14px rgba(59,130,246,0.25)' }}
               >
                 Ir a mi Panel <ArrowRight className="w-4 h-4 ml-1.5" />
               </Button>
@@ -151,7 +155,8 @@ export default function HomePage() {
                 </Button>
                 <Button 
                   onClick={() => router.push('/registro')}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold shadow-lg shadow-emerald-500/25 transition-all text-sm"
+                  className="font-semibold transition-all text-sm"
+                  style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 12px rgba(59,130,246,0.25)' }}
                 >
                   <UserPlus className="w-4 h-4 mr-1.5" /> Registrarse
                 </Button>
@@ -163,12 +168,12 @@ export default function HomePage() {
 
       {/* Hero Section */}
       <section className="relative px-4 pt-20 pb-16 lg:pt-32 lg:pb-24 max-w-7xl mx-auto text-center space-y-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider animate-fade-in">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold uppercase tracking-wider animate-fade-in">
           <Sparkles className="w-3.5 h-3.5" /> Ecosistema Digital de Inversiones
         </div>
         
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight max-w-4xl mx-auto leading-[1.1] animate-slide-up">
-          Multiplicá tu capital con <span className="bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-300 bg-clip-text text-transparent">respaldo real de activos</span>
+          Multiplicá tu capital con <span className="bg-gradient-to-r from-blue-400 via-sky-300 to-cyan-300 bg-clip-text text-transparent">respaldo real de activos</span>
         </h1>
         
         <p className="text-base sm:text-lg lg:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed animate-slide-up" style={{ animationDelay: '0.1s' }}>
@@ -178,7 +183,8 @@ export default function HomePage() {
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4 animate-slide-up" style={{ animationDelay: '0.2s' }}>
           <Button 
             onClick={scrollToSimulator}
-            className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold px-8 py-6 rounded-xl shadow-xl shadow-emerald-500/10 transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto font-semibold px-8 py-6 rounded-xl transition-all flex items-center justify-center gap-2"
+            style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 8px 24px rgba(59,130,246,0.2)' }}
           >
             <Calculator className="w-5 h-5" /> Simular Inversión
           </Button>
@@ -193,16 +199,16 @@ export default function HomePage() {
 
         {/* Dynamic highlights */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6 pt-16 max-w-4xl mx-auto text-left animate-slide-up" style={{ animationDelay: '0.3s' }}>
-          <div className="glass-card p-5 rounded-2xl border border-white/5 hover:border-emerald-500/25 transition-all group">
-            <div className="text-2xl lg:text-3xl font-bold text-emerald-400 group-hover:scale-105 transition-transform">{rates.ars}% mensual</div>
+          <div className="glass-card p-5 rounded-2xl border border-white/5 hover:border-blue-500/25 transition-all group">
+            <div className="text-2xl lg:text-3xl font-bold text-blue-400 group-hover:scale-105 transition-transform">{rates.ars}% mensual</div>
             <div className="text-xs text-slate-400 uppercase tracking-wider mt-1.5 font-medium">Tasa de Rendimiento ARS</div>
           </div>
-          <div className="glass-card p-5 rounded-2xl border border-white/5 hover:border-emerald-500/25 transition-all group">
-            <div className="text-2xl lg:text-3xl font-bold text-emerald-400 group-hover:scale-105 transition-transform">{rates.usd}% mensual</div>
+          <div className="glass-card p-5 rounded-2xl border border-white/5 hover:border-blue-500/25 transition-all group">
+            <div className="text-2xl lg:text-3xl font-bold text-blue-400 group-hover:scale-105 transition-transform">{rates.usd}% mensual</div>
             <div className="text-xs text-slate-400 uppercase tracking-wider mt-1.5 font-medium">Tasa de Rendimiento USD</div>
           </div>
-          <div className="glass-card p-5 col-span-2 md:col-span-1 rounded-2xl border border-white/5 hover:border-emerald-500/25 transition-all group">
-            <div className="text-2xl lg:text-3xl font-bold text-emerald-400 group-hover:scale-105 transition-transform">100% Digital</div>
+          <div className="glass-card p-5 col-span-2 md:col-span-1 rounded-2xl border border-white/5 hover:border-blue-500/25 transition-all group">
+            <div className="text-2xl lg:text-3xl font-bold text-blue-400 group-hover:scale-105 transition-transform">100% Digital</div>
             <div className="text-xs text-slate-400 uppercase tracking-wider mt-1.5 font-medium">Firma de Contrato Online</div>
           </div>
         </div>
@@ -230,7 +236,7 @@ export default function HomePage() {
                       onClick={() => setCurrency('ARS')}
                       className={`py-3 px-4 rounded-xl border text-sm font-semibold transition-all ${
                         currency === 'ARS'
-                          ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-md shadow-emerald-500/5'
+                          ? 'bg-blue-500/10 border-blue-500 text-blue-400 shadow-md shadow-blue-500/5'
                           : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-300'
                       }`}
                     >
@@ -241,7 +247,7 @@ export default function HomePage() {
                       onClick={() => setCurrency('USD')}
                       className={`py-3 px-4 rounded-xl border text-sm font-semibold transition-all ${
                         currency === 'USD'
-                          ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-md shadow-emerald-500/5'
+                          ? 'bg-blue-500/10 border-blue-500 text-blue-400 shadow-md shadow-blue-500/5'
                           : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-300'
                       }`}
                     >
@@ -269,12 +275,13 @@ export default function HomePage() {
 
               <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs">
                 <span className="text-slate-400">Rendimiento Mensual Garantizado:</span>
-                <span className="text-emerald-400 font-bold text-sm">{currentRate}%</span>
+                <span className="text-blue-400 font-bold text-sm">{currentRate}%</span>
               </div>
 
               <Button
                 onClick={() => router.push(`/registro?currency=${currency}&capital=${capital}`)}
-                className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2"
+                className="w-full font-bold py-6 rounded-xl transition-all flex items-center justify-center gap-2"
+                style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 14px rgba(59,130,246,0.2)' }}
               >
                 Quiero realizar esta inversión <ChevronRight className="w-4 h-4" />
               </Button>
@@ -325,9 +332,9 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-emerald-500/20 transition-all">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Car className="w-5 h-5 text-emerald-400" />
+          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-blue-500/20 transition-all">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Car className="w-5 h-5 text-blue-400" />
             </div>
             <h3 className="font-bold text-lg">Tasación de Activos</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
@@ -335,9 +342,9 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-emerald-500/20 transition-all">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <FileText className="w-5 h-5 text-emerald-400" />
+          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-blue-500/20 transition-all">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <FileText className="w-5 h-5 text-blue-400" />
             </div>
             <h3 className="font-bold text-lg">Contratos Digitales</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
@@ -345,9 +352,9 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-emerald-500/20 transition-all">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Coins className="w-5 h-5 text-emerald-400" />
+          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-blue-500/20 transition-all">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <Coins className="w-5 h-5 text-blue-400" />
             </div>
             <h3 className="font-bold text-lg">Capitalización Compuesta</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
@@ -355,9 +362,9 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-emerald-500/20 transition-all">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <div className="glass-card p-6 rounded-2xl border border-white/5 space-y-4 hover:border-blue-500/20 transition-all">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5 text-blue-400" />
             </div>
             <h3 className="font-bold text-lg">Control & Liquidez</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
@@ -371,12 +378,12 @@ export default function HomePage() {
       <footer className="mt-auto py-8 px-4 border-t border-white/5 bg-slate-950/80 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-emerald-500/20 flex items-center justify-center">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <div className="w-6 h-6 rounded-md bg-blue-500/15 flex items-center justify-center">
+              <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
             </div>
-            <span className="font-bold text-slate-400">FinanPre CRM</span>
+            <span className="font-bold text-slate-400 tracking-wider uppercase">RENDIMAX CRM</span>
           </div>
-          <p>© 2026 FinanPre — Ecosistema Digital de Inversiones. Diseñado por Galu Diseño Web.</p>
+          <p>© 2026 RENDIMAX — Ecosistema Digital de Inversiones. Diseñado por Galu Diseño Web.</p>
         </div>
       </footer>
     </div>
