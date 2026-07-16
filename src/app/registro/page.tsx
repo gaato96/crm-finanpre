@@ -114,6 +114,8 @@ export default function RegistroPage() {
           data: {
             full_name: fullName,
             cuit: cuit.replace(/\D/g, ''),
+            phone: phone,
+            address: address,
             role: 'investor'
           }
         }
@@ -125,24 +127,6 @@ export default function RegistroPage() {
 
       if (!authData.user) {
         throw new Error('No se pudo crear el usuario.')
-      }
-
-      // 2. Wait a small delay and update the profile fields that trigger doesn't write automatically
-      // Trigger handle_new_user runs asynchronously, let's wait a bit then update
-      await new Promise(r => setTimeout(r, 800))
-      
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          phone,
-          address
-        })
-        .eq('id', authData.user.id)
-
-      if (updateError) {
-        console.error('Error updating phone and address on profile:', updateError)
-        // We do not fail the whole process if only these fields fail, but let's try again
-        await supabase.from('profiles').update({ phone, address }).eq('id', authData.user.id)
       }
 
       // Success, move to step 2 (Simulation)
