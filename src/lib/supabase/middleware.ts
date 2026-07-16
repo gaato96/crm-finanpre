@@ -77,18 +77,14 @@ export async function updateSession(request: NextRequest) {
   }
 
   // Public routes
-  if (pathname === '/login' || pathname === '/' || pathname.startsWith('/firmar') || pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/manifest') || pathname.startsWith('/sw') || pathname.startsWith('/icons')) {
-    if (user && (pathname === '/login' || pathname === '/')) {
+  if (pathname === '/login' || pathname === '/registro' || pathname === '/' || pathname.startsWith('/firmar') || pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/manifest') || pathname.startsWith('/sw') || pathname.startsWith('/icons')) {
+    if (user && (pathname === '/login' || pathname === '/registro' || pathname === '/')) {
       const role = await getUserRole()
       if (role === 'admin' || role === 'vendedor') {
         return NextResponse.redirect(new URL('/admin', request.url))
       } else {
         return NextResponse.redirect(new URL('/portal', request.url))
       }
-    }
-
-    if (!user && pathname === '/') {
-      return NextResponse.redirect(new URL('/login', request.url))
     }
     
     return supabaseResponse

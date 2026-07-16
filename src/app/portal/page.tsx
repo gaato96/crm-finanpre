@@ -22,6 +22,9 @@ import {
   formatDate,
   getContractStatusLabel,
   getContractStatusColor,
+  adjustToNextBusinessDay,
+  numberToWords,
+  fillContractTemplate
 } from '@/lib/helpers'
 import {
   TrendingUp,
@@ -42,6 +45,8 @@ import {
   FileText,
   DollarSign,
   Lock,
+  Coins,
+  ChevronRight,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -50,7 +55,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
 
 export default function PortalHomePage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState<string | null>(null)
@@ -94,6 +99,29 @@ export default function PortalHomePage() {
   const [propMortgageEligible, setPropMortgageEligible] = useState(true)
 
   const [valResult, setValResult] = useState<{ score: number, label: string, reasons: string[] } | null>(null)
+
+  // New investment states
+  const [activeTab, setActiveTab] = useState('activas')
+  const [newInvCurrency, setNewInvCurrency] = useState<'ARS' | 'USD'>('ARS')
+  const [newInvCapital, setNewInvCapital] = useState<number>(1000000)
+  const [newInvStartDate, setNewInvStartDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [newInvStep, setNewInvStep] = useState<number>(1) // 1: Simular, 2: Datos, 3: Preview
+  const [activeTemplate, setActiveTemplate] = useState<any>(null)
+  const [generatingContract, setGeneratingContract] = useState(false)
+  const [monthlyYieldConfig, setMonthlyYieldConfig] = useState({ ars_monthly_rate: 8.5, usd_monthly_rate: 5.0 })
+  const [adminWhatsappPhone, setAdminWhatsappPhone] = useState('5493815000000')
+
+  // Read initial params from URL if present to auto-navigate to "nueva" tab
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const qCurr = params.get('currency')
+    const qCap = params.get('capital')
+    if (qCurr && qCap) {
+      setActiveTab('nueva')
+      if (qCurr === 'ARS' || qCurr === 'USD') setNewInvCurrency(qCurr)
+      setNewInvCapital(parseFloat(qCap) || 1000000)
+    }
+  }, [])
 
   // Dynamic valuation calculation
   useEffect(() => {
@@ -170,26 +198,37 @@ export default function PortalHomePage() {
     setAnnouncements(data || [])
   }, [supabase])
 
-  const fetchValuationConfig = useCallback(async () => {
-    const { data } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'valuation_config')
-      .single()
-    if (data) {
-      setValConfig(data.value as ValuationConfig)
-      const zones = Object.keys((data.value as ValuationConfig).realEstate.zones)
+  const fetchSettingsAndTemplates = useCallback(async () => {
+    const [valRes, yieldRes, whatsappRes, templateRes] = await Promise.all([
+      supabase.from('system_settings').select('value').eq('key', 'valuation_config').maybeSingle(),
+      supabase.from('system_settings').select('value').eq('key', 'monthly_yield_config').maybeSingle(),
+      supabase.from('system_settings').select('value').eq('key', 'admin_whatsapp').maybeSingle(),
+      supabase.from('contract_templates').select('*').eq('type', 'inversion').eq('is_active', true).order('version', { ascending: false }).limit(1).maybeSingle()
+    ])
+
+    if (valRes.data && valRes.data.value) {
+      setValConfig(valRes.data.value as ValuationConfig)
+      const zones = Object.keys((valRes.data.value as ValuationConfig).realEstate.zones)
       if (zones.length > 0) {
         setPropZone(zones[0])
       }
+    }
+    if (yieldRes.data && yieldRes.data.value) {
+      setMonthlyYieldConfig(yieldRes.data.value as any)
+    }
+    if (whatsappRes.data && whatsappRes.data.value) {
+      setAdminWhatsappPhone((whatsappRes.data.value as any).phone || '5493815000000')
+    }
+    if (templateRes.data) {
+      setActiveTemplate(templateRes.data)
     }
   }, [supabase])
 
   useEffect(() => {
     fetchContracts()
     fetchAnnouncements()
-    fetchValuationConfig()
-  }, [fetchContracts, fetchAnnouncements, fetchValuationConfig])
+    fetchSettingsAndTemplates()
+  }, [fetchContracts, fetchAnnouncements, fetchSettingsAndTemplates])
 
   // Fetch Dolar Blue on mount
   useEffect(() => {
@@ -271,6 +310,64 @@ export default function PortalHomePage() {
     }
   }
 
+  const handleCreateContractSelfService = async () => {
+    if (!user) return
+    setGeneratingContract(true)
+    try {
+      const start = new Date(newInvStartDate + 'T12:00:00')
+      const end = new Date(start)
+      end.setDate(end.getDate() + 30) // 30 days cycle
+      
+      const adjustedEnd = adjustToNextBusinessDay(end.toISOString().split('T')[0])
+      const signToken = typeof window !== 'undefined' && window.crypto?.randomUUID 
+        ? window.crypto.randomUUID() 
+        : Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
+
+      const rate = newInvCurrency === 'ARS' ? monthlyYieldConfig.ars_monthly_rate : monthlyYieldConfig.usd_monthly_rate
+
+      const { data, error } = await supabase
+        .from('contracts')
+        .insert({
+          client_id: user.id,
+          initial_capital: newInvCapital,
+          current_capital: newInvCapital,
+          currency: newInvCurrency,
+          monthly_rate: rate,
+          start_date: newInvStartDate,
+          end_date: adjustedEnd,
+          status: 'enviado',
+          sign_token: signToken,
+          template_id: activeTemplate?.id || null
+        })
+        .select('*')
+        .single()
+
+      if (error) throw error
+
+      // Log event
+      await supabase.from('contract_events').insert({
+        contract_id: data.id,
+        event_type: 'sent',
+        ip_address: null,
+        user_agent: typeof window !== 'undefined' ? navigator.userAgent : null,
+        metadata: { client_created: true }
+      })
+
+      // Open signing URL in new window and redirect parent
+      const signUrl = `/firmar/${signToken}`
+      window.open(signUrl, '_blank')
+      
+      alert('¡Inversión creada con éxito! Se abrirá el contrato en una nueva pestaña para que lo firmes y confirmes la transferencia.')
+      fetchContracts()
+      setActiveTab('activas')
+      setNewInvStep(1)
+    } catch (err: any) {
+      alert('Error al generar el contrato: ' + err.message)
+    } finally {
+      setGeneratingContract(false)
+    }
+  }
+
   const handleSubmitProposal = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
@@ -314,6 +411,23 @@ export default function PortalHomePage() {
       setSimulatorLoading(false)
       return
     }
+
+    // Format WhatsApp message
+    const formattedValue = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(parseFloat(valMarketValue))
+    const clientName = profile?.full_name || user.email || 'Inversor'
+    const clientPhone = profile?.phone || 'No especificado'
+    const typeLabel = valType === 'vehiculo' ? '🚗 Vehículo' : '🏢 Inmueble'
+
+    const msg = `Hola! Acabo de realizar una tasación de garantía desde el portal FinanPRE.\n\n` +
+      `*Cliente:* ${clientName}\n` +
+      `*Teléfono:* ${clientPhone}\n` +
+      `*Tipo de Activo:* ${typeLabel}\n` +
+      `*Detalles:* ${valDescription}\n` +
+      `*Valor Estimado:* ${formattedValue}\n\n` +
+      `Confirmo que deseo registrar esta tasación como garantía para una inversión. Quedo a la espera de la cotización final y los días de consignación.`;
+
+    const waUrl = `https://wa.me/${adminWhatsappPhone}?text=${encodeURIComponent(msg)}`
+    window.open(waUrl, '_blank')
 
     setSimulatorSuccess(true)
     setSimulatorLoading(false)
@@ -524,9 +638,10 @@ export default function PortalHomePage() {
       </div>
 
       {/* Tabs Layout */}
-      <Tabs defaultValue="activas" className="w-full">
-        <TabsList className="bg-accent/40 w-full grid grid-cols-2 p-1 max-w-sm">
-          <TabsTrigger value="activas" className="text-xs sm:text-sm">Inversiones Activas ({activeContracts.length})</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="bg-accent/40 w-full grid grid-cols-3 p-1 max-w-lg">
+          <TabsTrigger value="activas" className="text-xs sm:text-sm">Mis Inversiones ({activeContracts.length})</TabsTrigger>
+          <TabsTrigger value="nueva" className="text-xs sm:text-sm">Nueva Inversión</TabsTrigger>
           <TabsTrigger value="historial" className="text-xs sm:text-sm">Retiros y Cierres ({historicalContracts.length})</TabsTrigger>
         </TabsList>
 
@@ -763,6 +878,272 @@ export default function PortalHomePage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/* Tab: Nueva Inversión */}
+        <TabsContent value="nueva" className="space-y-6 mt-4">
+          <Card className="glass-card">
+            <CardHeader className="border-b border-border/20 bg-accent/5">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Coins className="w-5 h-5 text-emerald-400" />
+                Nueva Inversión Autogestionada
+              </CardTitle>
+              <CardDescription>
+                Simulá, generá tu contrato y realizá tu inversión 100% online
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 space-y-6">
+              
+              {/* Step indicator */}
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-400 border-b border-border/10 pb-4 mb-4">
+                <span className={newInvStep === 1 ? "text-emerald-400 font-bold animate-pulse" : ""}>1. Simular</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+                <span className={newInvStep === 2 ? "text-emerald-400 font-bold" : ""}>2. Completar Datos</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+                <span className={newInvStep === 3 ? "text-emerald-400 font-bold" : ""}>3. Previsualizar Contrato</span>
+              </div>
+
+              {/* STEP 1: Simular */}
+              {newInvStep === 1 && (() => {
+                const newInvRate = newInvCurrency === 'ARS' ? monthlyYieldConfig.ars_monthly_rate : monthlyYieldConfig.usd_monthly_rate
+                const newInvProjections = [
+                  { months: 1, label: '1 Mes', colorClass: 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/15' },
+                  { months: 3, label: '3 Meses', colorClass: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/15' },
+                  { months: 6, label: '6 Meses', colorClass: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/15' },
+                  { months: 12, label: '12 Meses', colorClass: 'bg-purple-500/10 border-purple-500/20 text-purple-400 hover:bg-purple-500/15' },
+                ].map(p => {
+                  const finalCapital = newInvCapital * Math.pow(1 + newInvRate / 100, p.months)
+                  const gains = finalCapital - newInvCapital
+                  return { ...p, finalCapital, gains }
+                })
+
+                return (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label>Moneda de la Inversión</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewInvCurrency('ARS')}
+                            className={`py-2.5 px-4 rounded-xl border text-sm font-semibold transition-all ${
+                              newInvCurrency === 'ARS'
+                                ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
+                                : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10'
+                            }`}
+                          >
+                            Pesos ($ ARS)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewInvCurrency('USD')}
+                            className={`py-2.5 px-4 rounded-xl border text-sm font-semibold transition-all ${
+                              newInvCurrency === 'USD'
+                                ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
+                                : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10'
+                            }`}
+                          >
+                            Dólares (US$ USD)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="newInvCapital">Capital Inicial a Invertir</Label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-sm">
+                            {newInvCurrency === 'ARS' ? '$' : 'US$'}
+                          </span>
+                          <Input
+                            id="newInvCapital"
+                            type="number"
+                            value={newInvCapital}
+                            onChange={(e) => setNewInvCapital(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="pl-10 bg-white/5 border-white/10 font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex justify-between text-xs items-center">
+                      <span className="text-slate-400">Rendimiento Mensual de la Inversión:</span>
+                      <span className="text-emerald-400 font-bold text-sm">
+                        {newInvRate}%
+                      </span>
+                    </div>
+
+                    {/* Projections layout */}
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Proyección de Capital Proyectado</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {newInvProjections.map((p) => (
+                          <div
+                            key={p.months}
+                            className={`p-4 rounded-xl border flex flex-col justify-between h-[110px] ${p.colorClass}`}
+                          >
+                            <span className="text-[9px] uppercase font-bold tracking-wider opacity-85">{p.label}</span>
+                            <div>
+                              <div className="text-sm font-extrabold font-mono leading-none">
+                                {formatCurrency(p.finalCapital, newInvCurrency)}
+                              </div>
+                              <div className="text-[10px] opacity-75 mt-1 font-mono text-right">
+                                +{formatCurrency(p.gains, newInvCurrency)}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={() => setNewInvStep(2)}
+                      className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-bold py-5 rounded-xl flex items-center justify-center gap-2"
+                    >
+                      Continuar a Datos de Inversión <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )
+              })()}
+
+              {/* STEP 2: Completar Datos */}
+              {newInvStep === 2 && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Moneda Seleccionada</Label>
+                      <Input
+                        value={newInvCurrency === 'ARS' ? 'Pesos ($ ARS)' : 'Dólares (US$ USD)'}
+                        disabled
+                        className="bg-white/5 border-white/10 text-slate-400 font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Capital Inicial</Label>
+                      <Input
+                        value={formatCurrency(newInvCapital, newInvCurrency)}
+                        disabled
+                        className="bg-white/5 border-white/10 text-slate-400 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="newInvStartDate">Fecha de Inicio de Inversión</Label>
+                      <Input
+                        id="newInvStartDate"
+                        type="date"
+                        value={newInvStartDate}
+                        onChange={(e) => setNewInvStartDate(e.target.value)}
+                        className="bg-white/5 border-white/10"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Primer Vencimiento (30 días corridos, ajustado a día hábil)</Label>
+                      <Input
+                        value={(() => {
+                          const start = new Date(newInvStartDate + 'T12:00:00')
+                          const end = new Date(start)
+                          end.setDate(end.getDate() + 30)
+                          const adjusted = adjustToNextBusinessDay(end.toISOString().split('T')[0])
+                          return formatDate(adjusted)
+                        })()}
+                        disabled
+                        className="bg-white/5 border-white/10 text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/5 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Tasa Mensual Fija Aplicable:</span>
+                      <span className="text-emerald-400 font-bold">
+                        {newInvCurrency === 'ARS' ? monthlyYieldConfig.ars_monthly_rate : monthlyYieldConfig.usd_monthly_rate}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => setNewInvStep(1)}
+                      className="flex-1 border-white/10 text-slate-300 h-11"
+                    >
+                      Atrás
+                    </Button>
+                    <Button
+                      onClick={() => setNewInvStep(3)}
+                      className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-bold h-11"
+                    >
+                      Previsualizar Contrato
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: Preview Contract */}
+              {newInvStep === 3 && (
+                <div className="space-y-6">
+                  <div className="p-4 bg-white/5 rounded-xl border border-white/5 max-h-[350px] overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300">
+                    {activeTemplate ? (
+                      <div 
+                        dangerouslySetInnerHTML={{
+                          __html: fillContractTemplate(
+                            activeTemplate.content,
+                            {
+                              fecha_contrato: formatDate(new Date().toISOString()),
+                              nombre_cliente: profile?.full_name || 'PENDIENTE DE REGISTRO',
+                              dni_cliente: profile?.cuit || 'PENDIENTE DE REGISTRO',
+                              domicilio_cliente: profile?.address || 'PENDIENTE DE REGISTRO',
+                              moneda: newInvCurrency === 'ARS' ? 'PESOS' : 'DÓLARES',
+                              monto_inicial: newInvCapital.toString(),
+                              monto_letras: numberToWords(newInvCapital).toUpperCase() + ' ' + (newInvCurrency === 'ARS' ? 'PESOS' : 'DÓLARES'),
+                              tasa_mensual: (newInvCurrency === 'ARS' ? monthlyYieldConfig.ars_monthly_rate : monthlyYieldConfig.usd_monthly_rate).toString(),
+                              fecha_inicio: formatDate(newInvStartDate),
+                              fecha_firma: formatDate(new Date().toISOString()),
+                              hora_firma: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                              ip_firma: 'PREVIEW'
+                            },
+                            activeTemplate.name
+                          )
+                        }}
+                      />
+                    ) : (
+                      <p className="text-center text-slate-500 py-10">Cargando plantilla de contrato...</p>
+                    )}
+                  </div>
+
+                  <div className="p-3 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+                    * Al confirmar la inversión, el contrato será generado automáticamente y se abrirá una nueva pestaña para firmar electrónicamente el contrato en el canvas de firmas de FinanPRE. Una vez firmado, recibirás la información para transferir.
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => setNewInvStep(2)}
+                      disabled={generatingContract}
+                      className="flex-1 border-white/10 text-slate-300 h-11"
+                    >
+                      Atrás
+                    </Button>
+                    <Button
+                      onClick={handleCreateContractSelfService}
+                      disabled={generatingContract || !activeTemplate}
+                      className="flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-bold h-11 flex items-center justify-center gap-2"
+                    >
+                      {generatingContract ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          Confirmar e Ir a Firmar <FileText className="w-4 h-4" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

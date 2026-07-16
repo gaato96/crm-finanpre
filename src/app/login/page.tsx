@@ -138,6 +138,18 @@ export default function LoginPage() {
               </Button>
             </form>
 
+            <div className="mt-4 text-center">
+              <p className="text-xs text-muted-foreground">
+                ¿No tenés cuenta?{' '}
+                <span
+                  onClick={() => router.push('/registro')}
+                  className="text-emerald-accent hover:underline cursor-pointer font-semibold"
+                >
+                  Registrate como inversor
+                </span>
+              </p>
+            </div>
+
             <div className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground/60">
               <Shield className="w-3.5 h-3.5" />
               <span>Conexión segura y encriptada</span>

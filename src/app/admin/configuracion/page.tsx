@@ -18,6 +18,7 @@ import {
   Plus,
   Trash2,
   Percent,
+  Phone,
 } from 'lucide-react'
 
 export default function ConfiguracionPage() {
@@ -39,16 +40,23 @@ export default function ConfiguracionPage() {
     titular: 'FinanPre S.A.',
     cuit: '30-71700000-0'
   })
+  const [monthlyYield, setMonthlyYield] = useState({
+    ars_monthly_rate: 8.5,
+    usd_monthly_rate: 5.0
+  })
+  const [adminWhatsapp, setAdminWhatsapp] = useState('5493815000000')
 
   const supabase = createClient()
 
   useEffect(() => {
     const fetchConfig = async () => {
       setLoading(true)
-      const [valRes, bcraRes, bankRes] = await Promise.all([
+      const [valRes, bcraRes, bankRes, yieldRes, whatsappRes] = await Promise.all([
         supabase.from('system_settings').select('value').eq('key', 'valuation_config').maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'bcra_yield_config').maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'bank_transfer_details').maybeSingle(),
+        supabase.from('system_settings').select('value').eq('key', 'monthly_yield_config').maybeSingle(),
+        supabase.from('system_settings').select('value').eq('key', 'admin_whatsapp').maybeSingle(),
       ])
 
       if (valRes.data && valRes.data.value) {
@@ -60,6 +68,12 @@ export default function ConfiguracionPage() {
       if (bankRes.data && bankRes.data.value) {
         setBankDetails(bankRes.data.value as any)
       }
+      if (yieldRes.data && yieldRes.data.value) {
+        setMonthlyYield(yieldRes.data.value as any)
+      }
+      if (whatsappRes.data && whatsappRes.data.value) {
+        setAdminWhatsapp((whatsappRes.data.value as any).phone || '5493815000000')
+      }
       setLoading(false)
     }
 
@@ -70,7 +84,7 @@ export default function ConfiguracionPage() {
     setSaving(true)
     setStatus(null)
 
-    const [valErr, bcraErr, bankErr] = await Promise.all([
+    const [valErr, bcraErr, bankErr, yieldErr, whatsappErr] = await Promise.all([
       supabase.from('system_settings').upsert({
         key: 'valuation_config',
         value: config,
@@ -85,10 +99,20 @@ export default function ConfiguracionPage() {
         key: 'bank_transfer_details',
         value: bankDetails,
         updated_at: new Date().toISOString(),
+      }),
+      supabase.from('system_settings').upsert({
+        key: 'monthly_yield_config',
+        value: monthlyYield,
+        updated_at: new Date().toISOString(),
+      }),
+      supabase.from('system_settings').upsert({
+        key: 'admin_whatsapp',
+        value: { phone: adminWhatsapp },
+        updated_at: new Date().toISOString(),
       })
     ])
 
-    if (valErr.error || bcraErr.error || bankErr.error) {
+    if (valErr.error || bcraErr.error || bankErr.error || yieldErr.error || whatsappErr.error) {
       setStatus({ type: 'error', message: 'Error al guardar los ajustes.' })
     } else {
       setStatus({ type: 'success', message: 'Ajustes guardados correctamente.' })
@@ -540,7 +564,8 @@ export default function ConfiguracionPage() {
                   onClick={handleAddZone}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold h-9 shrink-0"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  Agregar
                 </Button>
               </div>
             </div>
@@ -548,94 +573,144 @@ export default function ConfiguracionPage() {
         </Card>
       </div>
 
-      {/* BCRA and Bank Details Configuration */}
-      <Card className="glass-card mt-6">
+      {/* Rendimientos Mensuales */}
+      <Card className="glass-card">
         <CardHeader className="border-b border-border/20 bg-accent/10">
           <CardTitle className="flex items-center gap-2 text-lg">
-            <Building2 className="w-5 h-5 text-emerald-400" />
-            Datos de Referencia y Transferencia Bancaria
+            <Percent className="w-5 h-5 text-emerald-400" />
+            Rendimientos Mensuales
           </CardTitle>
           <CardDescription>
-            Configura el rendimiento mínimo de plazos fijos del BCRA y los datos de cuenta para que los inversores realicen transferencias al firmar
+            Tasas mensuales que se aplican a nuevas inversiones en ARS y USD
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Rendimiento BCRA */}
-            <div className="space-y-4 border-b md:border-b-0 md:border-r border-border/25 pb-6 md:pb-0 pr-0 md:pr-6">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tasas del Banco Central</h4>
-              <div className="space-y-2">
-                <Label htmlFor="bcraYield">Rendimiento Mínimo Anual BCRA (%)</Label>
-                <div className="relative">
-                  <Percent className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                  <Input
-                    id="bcraYield"
-                    type="number"
-                    value={bcraYield}
-                    onChange={(e) => setBcraYield(parseFloat(e.target.value) || 0)}
-                    className="pl-9 bg-input/50 font-mono"
-                  />
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-normal mt-1.5">
-                  Se utiliza para contrastar la rentabilidad de las inversiones ofrecidas frente a la de plazos fijos bancarios como sugerencia interactiva.
-                </p>
+        <CardContent className="p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="arsRate">Tasa Mensual ARS (%)</Label>
+              <div className="relative">
+                <Percent className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  id="arsRate"
+                  type="number"
+                  step="0.1"
+                  value={monthlyYield.ars_monthly_rate}
+                  onChange={(e) => setMonthlyYield(p => ({ ...p, ars_monthly_rate: parseFloat(e.target.value) || 0 }))}
+                  className="pl-9 bg-input/50"
+                />
               </div>
+              <p className="text-xs text-muted-foreground">Rendimiento mensual para inversiones en pesos argentinos</p>
             </div>
-
-            {/* Datos Bancarios */}
-            <div className="md:col-span-2 space-y-4">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Detalles de Cuenta para Transferencias</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="bankName">Nombre del Banco</Label>
-                  <Input
-                    id="bankName"
-                    value={bankDetails.banco}
-                    onChange={(e) => setBankDetails(p => ({ ...p, banco: e.target.value }))}
-                    className="bg-input/50"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="bankOwner">Titular de Cuenta</Label>
-                  <Input
-                    id="bankOwner"
-                    value={bankDetails.titular}
-                    onChange={(e) => setBankDetails(p => ({ ...p, titular: e.target.value }))}
-                    className="bg-input/50"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="bankCuit">CUIT del Titular</Label>
-                  <Input
-                    id="bankCuit"
-                    value={bankDetails.cuit}
-                    onChange={(e) => setBankDetails(p => ({ ...p, cuit: e.target.value }))}
-                    className="bg-input/50"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="bankAlias">Alias de Cuenta</Label>
-                  <Input
-                    id="bankAlias"
-                    value={bankDetails.alias}
-                    onChange={(e) => setBankDetails(p => ({ ...p, alias: e.target.value }))}
-                    className="bg-input/50"
-                  />
-                </div>
-                <div className="sm:col-span-2 space-y-1.5">
-                  <Label htmlFor="bankCbu">CBU / CVU</Label>
-                  <Input
-                    id="bankCbu"
-                    value={bankDetails.cbu}
-                    onChange={(e) => setBankDetails(p => ({ ...p, cbu: e.target.value }))}
-                    className="bg-input/50 font-mono"
-                  />
-                </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="usdRate">Tasa Mensual USD (%)</Label>
+              <div className="relative">
+                <Percent className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  id="usdRate"
+                  type="number"
+                  step="0.1"
+                  value={monthlyYield.usd_monthly_rate}
+                  onChange={(e) => setMonthlyYield(p => ({ ...p, usd_monthly_rate: parseFloat(e.target.value) || 0 }))}
+                  className="pl-9 bg-input/50"
+                />
               </div>
+              <p className="text-xs text-muted-foreground">Rendimiento mensual para inversiones en dólares</p>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* WhatsApp Admin + Datos Bancarios */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="glass-card">
+          <CardHeader className="border-b border-border/20 bg-accent/10">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Phone className="w-5 h-5 text-emerald-400" />
+              WhatsApp del Administrador
+            </CardTitle>
+            <CardDescription>
+              Número al que se enviarán las notificaciones de tasaciones de clientes
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="adminPhone">Número completo (con código de país, sin +)</Label>
+              <div className="relative">
+                <Phone className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  id="adminPhone"
+                  value={adminWhatsapp}
+                  onChange={(e) => setAdminWhatsapp(e.target.value)}
+                  className="pl-9 bg-input/50 font-mono"
+                  placeholder="5493815000000"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Ej: 5493815000000 (54 = Argentina, 9 = celular, 381 = área Tucumán)</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card">
+          <CardHeader className="border-b border-border/20 bg-accent/10">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <DollarSign className="w-5 h-5 text-blue-400" />
+              Datos Bancarios para Inversiones
+            </CardTitle>
+            <CardDescription>
+              Información de transferencia que se muestra a los inversores al confirmar su inversión
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="bankName">Nombre del Banco</Label>
+                <Input
+                  id="bankName"
+                  value={bankDetails.banco}
+                  onChange={(e) => setBankDetails(p => ({ ...p, banco: e.target.value }))}
+                  className="bg-input/50"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bankOwner">Titular de Cuenta</Label>
+                <Input
+                  id="bankOwner"
+                  value={bankDetails.titular}
+                  onChange={(e) => setBankDetails(p => ({ ...p, titular: e.target.value }))}
+                  className="bg-input/50"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bankCuit">CUIT del Titular</Label>
+                <Input
+                  id="bankCuit"
+                  value={bankDetails.cuit}
+                  onChange={(e) => setBankDetails(p => ({ ...p, cuit: e.target.value }))}
+                  className="bg-input/50"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bankAlias">Alias de Cuenta</Label>
+                <Input
+                  id="bankAlias"
+                  value={bankDetails.alias}
+                  onChange={(e) => setBankDetails(p => ({ ...p, alias: e.target.value }))}
+                  className="bg-input/50"
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-1.5">
+                <Label htmlFor="bankCbu">CBU / CVU</Label>
+                <Input
+                  id="bankCbu"
+                  value={bankDetails.cbu}
+                  onChange={(e) => setBankDetails(p => ({ ...p, cbu: e.target.value }))}
+                  className="bg-input/50 font-mono"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

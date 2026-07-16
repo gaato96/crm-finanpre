@@ -17,7 +17,7 @@ import { formatCurrency, formatDate, daysRemaining, contractProgress, calculateA
 import {
   ArrowLeft, User, Phone, IdCard, Calendar, TrendingUp, Building2, CreditCard,
   FileText, CheckCircle2, AlertTriangle, Clock, RefreshCw, Star, Key, Copy, ExternalLink, Check, Loader2,
-  Car, Sparkles, Plus, AlertCircle,
+  Car, Sparkles, Plus, AlertCircle, Edit3, Trash2,
 } from 'lucide-react'
 import { StarRating } from '@/components/StarRating'
 import { adminResetPassword } from './actions'
@@ -57,6 +57,15 @@ export default function ClientDetailPage() {
   const [valConfig, setValConfig] = useState<ValuationConfig | null>(null)
   const [valuationLoading, setValuationLoading] = useState(false)
   const [valuationError, setValuationError] = useState<string | null>(null)
+
+  // Edit valuation dialog state
+  const [editValuation, setEditValuation] = useState<AssetValuation | null>(null)
+  const [editValMarketValue, setEditValMarketValue] = useState('')
+  const [editValCurrency, setEditValCurrency] = useState<'ARS' | 'USD'>('USD')
+  const [editValDescription, setEditValDescription] = useState('')
+  const [editValStatus, setEditValStatus] = useState('')
+  const [editValLoading, setEditValLoading] = useState(false)
+  const [editValError, setEditValError] = useState<string | null>(null)
 
   // Valuation Form State
   const [valType, setValType] = useState<'vehiculo' | 'inmueble'>('vehiculo')
@@ -276,6 +285,48 @@ export default function ClientDetailPage() {
     setPropMortgageEligible(true)
     setValResult(null)
     setValuationLoading(false)
+    fetchData()
+  }
+
+  const openEditValuation = (asset: AssetValuation) => {
+    setEditValuation(asset)
+    setEditValMarketValue(asset.market_value?.toString() || '')
+    setEditValCurrency((asset.currency as 'ARS' | 'USD') || 'USD')
+    setEditValDescription(asset.description || '')
+    setEditValStatus(asset.status || 'pendiente')
+    setEditValError(null)
+  }
+
+  const handleEditValuation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editValuation) return
+    setEditValLoading(true)
+    setEditValError(null)
+
+    const { error } = await supabase
+      .from('assets_valuation')
+      .update({
+        market_value: parseFloat(editValMarketValue) || 0,
+        currency: editValCurrency,
+        description: editValDescription,
+        status: editValStatus,
+      })
+      .eq('id', editValuation.id)
+
+    if (error) {
+      setEditValError(error.message)
+      setEditValLoading(false)
+      return
+    }
+
+    setEditValuation(null)
+    setEditValLoading(false)
+    fetchData()
+  }
+
+  const handleDeleteValuation = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar esta tasación? Esta acción no se puede deshacer.')) return
+    await supabase.from('assets_valuation').delete().eq('id', id)
     fetchData()
   }
 
@@ -615,16 +666,19 @@ export default function ClientDetailPage() {
                         <TableHead>Descripción</TableHead>
                         <TableHead>Valuación</TableHead>
                         <TableHead>Estado</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {assets.map((asset) => (
                         <TableRow key={asset.id} className="border-border/30">
-                          <TableCell className="capitalize text-sm font-semibold flex items-center gap-1.5 pt-4">
-                            {asset.asset_type === 'vehiculo' ? <Car className="w-4 h-4 text-orange-400" /> : <Building2 className="w-4 h-4 text-indigo-400" />}
-                            {asset.asset_type}
+                          <TableCell className="capitalize text-sm font-semibold">
+                            <span className="flex items-center gap-1.5">
+                              {asset.asset_type === 'vehiculo' ? <Car className="w-4 h-4 text-orange-400" /> : <Building2 className="w-4 h-4 text-indigo-400" />}
+                              {asset.asset_type}
+                            </span>
                           </TableCell>
-                          <TableCell className="text-sm">{asset.description}</TableCell>
+                          <TableCell className="text-sm max-w-[180px] truncate">{asset.description}</TableCell>
                           <TableCell className="font-bold text-sm text-foreground">
                             {formatCurrency(Number(asset.market_value), (asset.currency as any) || 'USD')}
                           </TableCell>
@@ -632,6 +686,28 @@ export default function ClientDetailPage() {
                             <Badge variant="outline" className={`text-xs ${statusColors[asset.status] || ''}`}>
                               {asset.status.toUpperCase()}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openEditValuation(asset)}
+                                className="h-7 w-7 p-0 text-primary hover:bg-primary/10"
+                                title="Editar tasación"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteValuation(asset.id)}
+                                className="h-7 w-7 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                title="Eliminar tasación"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -922,6 +998,96 @@ export default function ClientDetailPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Editar Tasación */}
+      <Dialog open={!!editValuation} onOpenChange={(open) => { if (!open) setEditValuation(null) }}>
+        <DialogContent className="glass-card border-border/50 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit3 className="w-5 h-5 text-primary" />
+              Editar Tasación
+            </DialogTitle>
+          </DialogHeader>
+
+          {editValuation && (
+            <form onSubmit={handleEditValuation} className="space-y-4 mt-2">
+              <div className="space-y-1.5">
+                <Label>Descripción del Activo</Label>
+                <Input
+                  required
+                  value={editValDescription}
+                  onChange={(e) => setEditValDescription(e.target.value)}
+                  className="bg-input/50"
+                  placeholder="Toyota Hilux 2021 SRX, 45.000km..."
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Valor de Mercado</Label>
+                  <Input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={editValMarketValue}
+                    onChange={(e) => setEditValMarketValue(e.target.value)}
+                    className="bg-input/50"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="col-span-1 space-y-1.5">
+                  <Label>Moneda</Label>
+                  <select
+                    value={editValCurrency}
+                    onChange={(e) => setEditValCurrency(e.target.value as 'ARS' | 'USD')}
+                    className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="ARS">ARS</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Estado de la Tasación</Label>
+                <select
+                  value={editValStatus}
+                  onChange={(e) => setEditValStatus(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-border bg-input/50 text-sm focus:outline-none"
+                >
+                  <option value="pendiente">Pendiente</option>
+                  <option value="tasado">Tasado</option>
+                  <option value="financiado">Financiado</option>
+                </select>
+              </div>
+
+              {editValError && (
+                <div className="p-2.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+                  {editValError}
+                </div>
+              )}
+
+              <DialogFooter className="pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditValuation(null)}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={editValLoading}
+                  className="flex-1 bg-gradient-to-r from-primary to-emerald-600 text-white font-semibold"
+                >
+                  {editValLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Guardar Cambios'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
