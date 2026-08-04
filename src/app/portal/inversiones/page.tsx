@@ -8,15 +8,20 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import type { Contract, AssetValuation } from '@/lib/types'
-import { formatCurrency, formatDate, daysRemaining, contractProgress, calculateAccruedInterest, isWithinDecisionWindow } from '@/lib/helpers'
+import { formatCurrency, formatDate, daysRemaining, contractProgress, calculateAccruedInterest, getContractStatusLabel, getContractStatusColor } from '@/lib/helpers'
 import { FormattedAmount } from '@/components/ui/formatted-amount'
-import { TrendingUp, Shield, Calendar, RefreshCw, ArrowDownToLine, CheckCircle2 } from 'lucide-react'
+import { TrendingUp, Shield, Calendar, ArrowDownToLine, CheckCircle2, Lock, Loader2 } from 'lucide-react'
+import { requestWithdrawal } from '../actions'
+
+/** Días antes del vencimiento en los que el retiro queda bloqueado (igual que en el servidor). */
+const WITHDRAWAL_LOCK_DAYS = 12
 
 export default function PortalInversionesPage() {
   const { user } = useAuth()
   const [contracts, setContracts] = useState<(Contract & { assets_valuation?: AssetValuation })[]>([])
   const [loading, setLoading] = useState(true)
   const [actionDone, setActionDone] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState<string | null>(null)
   const supabase = createClient()
 
   const fetchContracts = async () => {
@@ -29,33 +34,21 @@ export default function PortalInversionesPage() {
   useEffect(() => { fetchContracts() }, [user]) // eslint-disable-line
 
   const handleWithdraw = async (contractId: string) => {
-    await supabase.from('contracts').update({ status: 'retirado' }).eq('id', contractId)
-    setActionDone(contractId + '-withdraw')
-    fetchContracts()
-  }
+    if (!confirm('¿Confirmás la solicitud de retiro de esta inversión? Un administrador la revisará y transferirá los fondos.')) return
+    setSubmitting(contractId)
 
-  const handleReinvest = async (contract: Contract) => {
-    const totalAccrued = Number(contract.initial_capital) + calculateAccruedInterest(contract)
-    const today = new Date(); const end = new Date(today); end.setDate(end.getDate() + 30)
-    await supabase.from('contracts').update({ status: 'reinvertido' }).eq('id', contract.id)
-    await supabase.from('contracts').insert({
-      client_id: contract.client_id, asset_id: contract.asset_id,
-      initial_capital: Math.round(totalAccrued * 100) / 100, currency: contract.currency,
-      monthly_rate: contract.monthly_rate, start_date: today.toISOString().split('T')[0],
-      end_date: end.toISOString().split('T')[0], status: 'activo',
-    })
-    setActionDone(contract.id + '-reinvest')
-    fetchContracts()
+    const result = await requestWithdrawal(contractId)
+
+    if (result.error) {
+      alert(result.error)
+    } else {
+      setActionDone(contractId + '-withdraw')
+      await fetchContracts()
+    }
+    setSubmitting(null)
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" /></div>
-
-  const statusLabels: Record<string, { label: string; class: string }> = {
-    activo: { label: 'Activo', class: 'bg-emerald-accent/15 text-emerald-glow border-emerald-accent/30' },
-    vencido: { label: 'Vencido', class: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
-    retirado: { label: 'Retirado', class: 'bg-slate-500/15 text-slate-400 border-slate-500/30' },
-    reinvertido: { label: 'Reinvertido', class: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
-  }
 
   return (
     <div className="space-y-5 animate-slide-up">
@@ -71,8 +64,10 @@ export default function PortalInversionesPage() {
         </CardContent></Card>
       ) : (
         contracts.map((contract, i) => {
-          const status = statusLabels[contract.status] || statusLabels.activo
-          const showDecision = contract.status === 'activo' && isWithinDecisionWindow(contract)
+          const remaining = daysRemaining(contract)
+          const isActive = contract.status === 'activo'
+          const withdrawalLocked = isActive && remaining <= WITHDRAWAL_LOCK_DAYS
+          const canWithdraw = isActive && !withdrawalLocked
           const accrued = calculateAccruedInterest(contract)
           const guarantee = contract.assets_valuation
             ? `${contract.assets_valuation.asset_type === 'vehiculo' ? 'Vehículo' : contract.assets_valuation.asset_type === 'inmueble' ? 'Inmueble' : 'Efectivo'}: ${contract.assets_valuation.description}`
@@ -80,11 +75,13 @@ export default function PortalInversionesPage() {
 
           return (
             <Card key={contract.id} className="glass-card animate-fade-in overflow-hidden" style={{ animationDelay: `${i * 100}ms` }}>
-              {showDecision && <div className="h-1 bg-gradient-to-r from-emerald-accent to-emerald-glow" />}
+              {withdrawalLocked && <div className="h-1 bg-gradient-to-r from-amber-500 to-amber-400" />}
               <CardContent className="pt-5 pb-5 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <Badge variant="outline" className={`text-xs ${status.class}`}>{status.label}</Badge>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Badge variant="outline" className={`text-xs ${getContractStatusColor(contract.status)}`}>
+                      {getContractStatusLabel(contract.status)}
+                    </Badge>
                     <div className="mt-2 block">
                       <FormattedAmount
                         amount={Number(contract.initial_capital)}
@@ -112,10 +109,10 @@ export default function PortalInversionesPage() {
                   <div className="p-2.5 rounded-lg bg-accent/20"><p className="text-[10px] text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" />Liquidación</p><p className="text-xs font-medium">{formatDate(contract.end_date)}</p></div>
                 </div>
 
-                {contract.status === 'activo' && (
+                {isActive && (
                   <>
                     <div>
-                      <div className="flex justify-between text-[10px] text-muted-foreground mb-1"><span>Progreso</span><span>{daysRemaining(contract)} días</span></div>
+                      <div className="flex justify-between text-[10px] text-muted-foreground mb-1"><span>Progreso</span><span>{remaining} días</span></div>
                       <Progress value={contractProgress(contract)} className="h-1.5" />
                     </div>
                     <div className="p-3 rounded-xl bg-primary/5 border border-primary/10 text-center">
@@ -133,25 +130,34 @@ export default function PortalInversionesPage() {
                   </>
                 )}
 
-                {showDecision && (
-                  <div className="space-y-2 pt-1">
-                    <p className="text-xs text-center text-amber-400 font-medium">⏰ Contrato próximo a vencer</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button onClick={() => handleReinvest(contract)} className="bg-gradient-to-r from-emerald-accent to-emerald-glow text-deep-blue font-semibold text-xs h-11">
-                        <RefreshCw className="w-3.5 h-3.5 mr-1" />Reinvertir
-                      </Button>
-                      <Button variant="outline" onClick={() => handleWithdraw(contract.id)} className="border-border/50 text-xs h-11">
-                        <ArrowDownToLine className="w-3.5 h-3.5 mr-1" />Retirar
-                      </Button>
+                {canWithdraw && (
+                  <Button
+                    onClick={() => handleWithdraw(contract.id)}
+                    disabled={submitting === contract.id}
+                    className="w-full bg-orange-500 hover:bg-orange-600 text-slate-950 font-bold text-xs h-11 gap-1.5"
+                  >
+                    {submitting === contract.id
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <ArrowDownToLine className="w-3.5 h-3.5" />}
+                    Solicitar Retiro
+                  </Button>
+                )}
+
+                {withdrawalLocked && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
+                    <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-semibold text-amber-300">
+                        Retiro bloqueado – {remaining} días al vencimiento
+                      </p>
+                      <p className="text-[10px] text-amber-400/70 mt-0.5 leading-relaxed">
+                        No se puede solicitar el retiro cuando faltan {WITHDRAWAL_LOCK_DAYS} días o menos.
+                        Al vencer, el capital se reinvierte automáticamente con interés compuesto.
+                      </p>
                     </div>
                   </div>
                 )}
 
-                {actionDone === contract.id + '-reinvest' && (
-                  <div className="p-3 rounded-lg bg-emerald-accent/10 border border-emerald-accent/20 flex items-center gap-2 text-emerald-glow text-xs animate-fade-in">
-                    <CheckCircle2 className="w-4 h-4" />Reinversión solicitada exitosamente
-                  </div>
-                )}
                 {actionDone === contract.id + '-withdraw' && (
                   <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center gap-2 text-blue-400 text-xs animate-fade-in">
                     <CheckCircle2 className="w-4 h-4" />Retiro solicitado. Tu asesor preparará los fondos.

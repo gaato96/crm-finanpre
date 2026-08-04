@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
       warning: { bg: '#3d2a0f', accent: '#f97316', label: '⚠️ Alerta' },
     }
     const colors = typeColors[type] || typeColors.info
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rendimax.com.ar'
 
     // Build HTML email
     const htmlContent = `
@@ -64,9 +65,9 @@ export async function POST(req: NextRequest) {
         <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
           <!-- Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#064e3b,#065f46);border-radius:16px 16px 0 0;padding:32px 40px;text-align:center;">
-              <div style="font-size:28px;font-weight:900;color:#10b981;letter-spacing:-0.5px;">FINAN<span style="color:#ffffff;">PRE</span></div>
-              <div style="font-size:12px;color:#6ee7b7;margin-top:4px;letter-spacing:2px;text-transform:uppercase;">Plataforma de Inversiones</div>
+            <td style="background:linear-gradient(135deg,#1e3a8a,#1d4ed8);border-radius:16px 16px 0 0;padding:32px 40px;text-align:center;">
+              <div style="font-size:28px;font-weight:900;color:#60a5fa;letter-spacing:2px;">RENDI<span style="color:#ffffff;">MAX</span></div>
+              <div style="font-size:12px;color:#93c5fd;margin-top:4px;letter-spacing:2px;text-transform:uppercase;">Plataforma de Inversiones</div>
             </td>
           </tr>
           <!-- Badge -->
@@ -82,8 +83,8 @@ export async function POST(req: NextRequest) {
               <div style="color:#94a3b8;font-size:15px;line-height:1.7;white-space:pre-line;">${content}</div>
               <!-- CTA -->
               <div style="margin-top:32px;text-align:center;">
-                <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://RENDIMAX.com.ar'}/portal" 
-                   style="display:inline-block;background:#10b981;color:#022c22;font-weight:800;font-size:14px;padding:14px 32px;border-radius:10px;text-decoration:none;">
+                <a href="${appUrl}/portal"
+                   style="display:inline-block;background:#3b82f6;color:#ffffff;font-weight:800;font-size:14px;padding:14px 32px;border-radius:10px;text-decoration:none;">
                   Ver mi Portal →
                 </a>
               </div>
@@ -105,23 +106,37 @@ export async function POST(req: NextRequest) {
 </body>
 </html>`
 
-    // Send individual emails to each investor (batch)
-    const emailResults = []
-    const failed: string[] = []
-    
-    for (const investor of investors) {
-      if (!investor.email) continue
+    // Envío por lotes: una sola llamada a Resend cada 100 destinatarios
+    // (el envío secuencial tardaba un request por inversor).
+    const from = process.env.RESEND_FROM_EMAIL || 'RENDIMAX <noreply@rendimax.com.ar>'
+    const recipients = investors
+      .map((i) => i.email)
+      .filter((email): email is string => Boolean(email))
+
+    const BATCH_SIZE = 100
+    let sent = 0
+    let failed = 0
+
+    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      const chunk = recipients.slice(i, i + BATCH_SIZE)
       try {
-        const result = await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL || 'RENDIMAX <noreply@RENDIMAX.com.ar>',
-          to: investor.email,
-          subject: `[RENDIMAX] ${title}`,
-          html: htmlContent,
-        })
-        emailResults.push({ email: investor.email, id: result.data?.id })
+        const { error } = await resend.batch.send(
+          chunk.map((email) => ({
+            from,
+            to: email,
+            subject: `[RENDIMAX] ${title}`,
+            html: htmlContent,
+          }))
+        )
+        if (error) {
+          failed += chunk.length
+          console.error('Resend batch error:', error)
+        } else {
+          sent += chunk.length
+        }
       } catch (err: any) {
-        failed.push(investor.email)
-        console.error(`Failed to send to ${investor.email}:`, err.message)
+        failed += chunk.length
+        console.error('Resend batch exception:', err?.message)
       }
     }
 
@@ -129,15 +144,15 @@ export async function POST(req: NextRequest) {
     if (announcementId) {
       await supabase.from('announcements').update({
         last_email_sent_at: new Date().toISOString(),
-        email_recipients_count: emailResults.length,
+        email_recipients_count: sent,
       }).eq('id', announcementId)
     }
 
     return NextResponse.json({
       success: true,
-      sent: emailResults.length,
-      failed: failed.length,
-      total: investors.length,
+      sent,
+      failed,
+      total: recipients.length,
     })
   } catch (err: any) {
     console.error('Email send error:', err)

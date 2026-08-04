@@ -42,15 +42,11 @@ export default function HomePage() {
       try {
         const supabase = createClient()
         
-        // 1. Fetch yield config
-        const { data: yieldConfig } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'monthly_yield_config')
-          .maybeSingle()
+        // 1. Fetch yield config (solo las claves públicas)
+        const { data: publicSettings } = await supabase.rpc('get_public_settings')
 
-        if (yieldConfig?.value) {
-          const val = yieldConfig.value as any
+        const val = publicSettings?.monthly_yield_config
+        if (val) {
           setRates({
             ars: val.ars_monthly_rate || 8.5,
             usd: val.usd_monthly_rate || 5.0
@@ -115,47 +111,51 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080f1a] text-slate-100 flex flex-col selection:bg-blue-500/30 selection:text-blue-300">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#080f1a] text-slate-100 flex flex-col selection:bg-blue-500/30 selection:text-blue-300">
       {/* Background gradients for visual depth */}
       <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute top-1/3 right-1/4 w-[600px] h-[600px] bg-blue-400/4 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Header */}
       <header className="sticky top-0 z-50 w-full glass-card border-b border-white/5 px-4 lg:px-8 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
             <div
-              className="w-9 h-9 rounded-lg flex items-center justify-center"
+              className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
               style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 14px rgba(59,130,246,0.3)' }}
             >
               <TrendingUp className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-widest uppercase gradient-text">
+            <span className="text-lg sm:text-xl font-bold tracking-widest uppercase gradient-text truncate">
               RENDIMAX
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {isLoggedIn ? (
-              <Button 
+              <Button
                 onClick={() => router.push(role === 'admin' || role === 'vendedor' ? '/admin' : '/portal')}
-                className="font-semibold transition-all text-sm"
+                className="font-semibold transition-all text-xs sm:text-sm px-3 sm:px-4"
                 style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 14px rgba(59,130,246,0.25)' }}
               >
-                Ir a mi Panel <ArrowRight className="w-4 h-4 ml-1.5" />
+                <span className="hidden sm:inline">Ir a mi Panel</span>
+                <span className="sm:hidden">Mi Panel</span>
+                <ArrowRight className="w-4 h-4 ml-1.5" />
               </Button>
             ) : (
               <>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   onClick={() => router.push('/login')}
-                  className="text-slate-300 hover:text-white hover:bg-white/5 text-sm"
+                  className="text-slate-300 hover:text-white hover:bg-white/5 text-xs sm:text-sm px-2.5 sm:px-4"
                 >
-                  <LogIn className="w-4 h-4 mr-1.5" /> Iniciar Sesión
+                  <LogIn className="w-4 h-4 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Iniciar Sesión</span>
+                  <span className="sr-only sm:hidden">Iniciar Sesión</span>
                 </Button>
-                <Button 
+                <Button
                   onClick={() => router.push('/registro')}
-                  className="font-semibold transition-all text-sm"
+                  className="font-semibold transition-all text-xs sm:text-sm px-3 sm:px-4"
                   style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', boxShadow: '0 4px 12px rgba(59,130,246,0.25)' }}
                 >
                   <UserPlus className="w-4 h-4 mr-1.5" /> Registrarse

@@ -51,13 +51,9 @@ export default function RegistroPage() {
     const fetchRates = async () => {
       try {
         const supabase = createClient()
-        const { data } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'monthly_yield_config')
-          .maybeSingle()
-        if (data?.value) {
-          const val = data.value as any
+        const { data } = await supabase.rpc('get_public_settings')
+        const val = data?.monthly_yield_config
+        if (val) {
           setRates({
             ars: val.ars_monthly_rate || 8.5,
             usd: val.usd_monthly_rate || 5.0
@@ -161,7 +157,7 @@ export default function RegistroPage() {
   })
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col justify-center items-center p-4 relative selection:bg-emerald-500/30 selection:text-emerald-300">
+    <div className="min-h-screen overflow-x-hidden bg-[#090d16] text-slate-100 flex flex-col justify-center items-center p-4 relative selection:bg-emerald-500/30 selection:text-emerald-300">
       {/* Background decoration */}
       <div className="absolute top-10 left-10 w-[300px] h-[300px] bg-emerald-500/5 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-[400px] h-[400px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none" />

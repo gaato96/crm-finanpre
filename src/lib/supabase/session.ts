@@ -53,12 +53,14 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Helper to resolve user role efficiently: JWT metadata first, then DB fallback
+  // El rol se resuelve SIEMPRE contra la tabla profiles.
+  // user_metadata no sirve como fuente de verdad: el propio usuario puede
+  // modificarlo con auth.updateUser y auto-asignarse el rol de admin.
+  let cachedRole: string | null | undefined
   const getUserRole = async (): Promise<string | null> => {
     if (!user) return null
-    if (user.user_metadata?.role) {
-      return user.user_metadata.role
-    }
+    if (cachedRole !== undefined) return cachedRole
+
     try {
       const profilePromise = supabase
         .from('profiles')
@@ -69,11 +71,13 @@ export async function updateSession(request: NextRequest) {
         setTimeout(() => reject(new Error('Timeout fetching profile role')), 5000)
       )
       const { data: profile } = await Promise.race([profilePromise, timeoutPromise]) as any
-      return profile?.role ?? null
+      cachedRole = profile?.role ?? null
     } catch (err) {
       console.error('Middleware: Error fetching role:', err)
-      return null
+      // Ante un fallo de red se trata como inversor: nunca se concede admin por defecto
+      cachedRole = null
     }
+    return cachedRole ?? null
   }
 
   // Public routes

@@ -1,7 +1,9 @@
 import { type NextRequest } from 'next/server'
-import { updateSession } from '@/lib/supabase/middleware'
+import { updateSession } from '@/lib/supabase/session'
 
-export async function middleware(request: NextRequest) {
+// Next.js 16 renombró la convención `middleware` a `proxy` (misma funcionalidad).
+// La autorización real la aplica RLS en Supabase; esto solo enruta por rol.
+export async function proxy(request: NextRequest) {
   return await updateSession(request)
 }
 

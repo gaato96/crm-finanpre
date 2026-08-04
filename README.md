@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RENDIMAX CRM
 
-## Getting Started
+Ecosistema digital de inversiones: panel administrativo (CRM), portal del inversor (PWA) y firma electrónica de contratos.
 
-First, run the development server:
+Stack: Next.js 16 (App Router) · React 19 · Tailwind v4 · Supabase (Auth + Postgres + Storage + RLS) · Vercel.
+
+## Puesta en marcha local
+
+```bash
+npm install
+```
+
+Copiá `.env.local.example` a `.env.local` y completá las variables. Luego:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Base de datos
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Los scripts de `supabase/` se ejecutan **en orden** desde el SQL Editor de Supabase:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Orden | Archivo | Contenido |
+|---|---|---|
+| 1 | `schema.sql` | Tablas base y trigger de alta de perfil |
+| 2 | `fix_rls.sql` | Función `get_my_role()` y políticas de administrador |
+| 3 | `v2_migration.sql` | Contratos v2, eventos, garantes, activos, plantillas, bucket de contratos |
+| 4 | `v3_migration.sql` | Anuncios, `system_settings`, rol vendedor |
+| 5 | `v4_migration.sql` | Consignación de activos y retiros parciales |
+| 6 | `v5_migration.sql` | Registro de envíos de email |
+| 7 | `v6_migration.sql` – `v8_migration.sql` | Cascadas de borrado, baja de usuarios, metadata de eventos |
+| 8 | `v9_migration.sql` | CUIT, scoring crediticio, reinversión automática |
+| 9 | `v10_migration.sql` | Rendimiento mensual y WhatsApp del administrador |
+| 10 | `v11_migration.sql` | Teléfono y domicilio en el alta por registro |
+| 11 | `v12_migration.sql` | **Tipos de crédito, fecha de pago elegible, desglose capital/interés, índices** |
+| 12 | `v13_migration.sql` | **Cierre de fugas públicas: RPC de firma, ajustes públicos y bloqueo de escritura del inversor** |
 
-## Learn More
+> `v12` y `v13` deben ejecutarse **antes** de desplegar esta versión del código: el módulo
+> de créditos, la pantalla de firma y la landing dependen de esas columnas y funciones.
 
-To learn more about Next.js, take a look at the following resources:
+## Modalidades de crédito
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Modalidad | Semántica de la tasa | Cómo se calcula |
+|---|---|---|
+| Cuotas fijas | Interés **total** sobre el capital | `capital × (1 + tasa) / n`, cuotas iguales |
+| Cuotas decrecientes | Tasa **mensual sobre el saldo** (sistema alemán) | `capital/n + saldo × tasa`; la cuota baja `capital/n × tasa` cada mes |
+| Refinanciación constante | Tasa **mensual sobre el capital** | Cuotas de solo interés (`capital × tasa`) hasta cancelar `capital + interés` |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+La fecha de pago la elige el administrador al otorgar el crédito: las cuotas siguientes vencen
+el mismo día de cada mes (si el mes no tiene ese día, se usa el último).
 
-## Deploy on Vercel
+La lógica vive en [`src/lib/credit.ts`](src/lib/credit.ts) y es pura, sin dependencias de UI ni de base de datos.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Roles y accesos
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Rol | Acceso |
+|---|---|
+| `admin` | Todo `/admin` |
+| `vendedor` | `/admin`, `/admin/clientes`, `/admin/contratos`, `/admin/creditos` |
+| `investor` | `/portal` |
+
+El rol se resuelve siempre contra la tabla `profiles` (nunca desde `user_metadata`, que el
+propio usuario puede modificar). La autorización real la aplica RLS en Supabase; `src/proxy.ts`
+solo enruta.
+
+## Notas de seguridad
+
+- Las operaciones del inversor (alta de inversión y solicitud de retiro) pasan por
+  server actions en `src/app/portal/actions.ts`: el navegador no puede fijar su propia tasa
+  ni cambiar el estado de un contrato.
+- La pantalla pública de firma usa las funciones `get_contract_for_signing` y `sign_contract`,
+  acotadas al token; no hay políticas abiertas sobre `contracts` ni `profiles`.
+- El service worker (`public/sw.js`) nunca cachea respuestas de datos ni de otros orígenes.
+
+## Despliegue
+
+Push a `master` → Vercel despliega automáticamente. Las variables de entorno son las de
+`.env.local.example` y deben estar cargadas en Vercel **antes** del build.

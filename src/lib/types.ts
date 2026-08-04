@@ -144,6 +144,14 @@ export interface ContractTemplate {
 // ──────────────────────────────────────────
 export type CreditStatus = 'vigente' | 'finalizado' | 'moroso'
 
+/**
+ * Modalidad de devolución del crédito:
+ * - `fija`: cuotas iguales (tasa = interés total sobre el capital)
+ * - `decreciente`: sistema alemán, la cuota baja mes a mes (tasa mensual sobre el saldo)
+ * - `refinanciacion`: el cliente paga solo el interés hasta cancelar el capital
+ */
+export type CreditType = 'fija' | 'decreciente' | 'refinanciacion'
+
 export interface Credit {
   id: string
   client_id: string
@@ -157,6 +165,11 @@ export interface Credit {
   contract_id: string | null
   daily_late_interest_rate: number
   created_at: string
+  credit_type: CreditType
+  first_due_date?: string | null
+  payment_day?: number | null
+  payoff_amount?: number | null
+  payoff_at?: string | null
   // Joined
   profiles?: Profile
   credit_installments?: CreditInstallment[]
@@ -175,6 +188,13 @@ export interface CreditInstallment {
   paid_at: string | null
   late_interest: number
   created_at: string
+  principal_amount?: number | null
+  interest_amount?: number | null
+  /** Cuota que solo cubre interés (refinanciación constante) */
+  is_interest_only?: boolean
+  /** Cuota de cancelación total del capital + interés */
+  is_payoff?: boolean
+  paid_amount?: number | null
 }
 
 export interface Guarantor {

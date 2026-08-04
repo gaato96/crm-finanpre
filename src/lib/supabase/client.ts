@@ -38,6 +38,13 @@ export function createClient() {
         delete: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
         upsert: () => Promise.resolve({ data: null, error: null }),
       }),
+      rpc: (_fn: string, _args?: unknown) => Promise.resolve({ data: null, error: null }),
+      storage: {
+        from: (_bucket: string) => ({
+          upload: () => Promise.resolve({ data: null, error: null }),
+          getPublicUrl: () => ({ data: { publicUrl: '' } }),
+        }),
+      },
     } as any
   }
 

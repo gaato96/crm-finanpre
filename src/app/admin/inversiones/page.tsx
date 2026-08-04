@@ -336,7 +336,7 @@ export default function InversionesPage() {
         .from('contracts')
         .update({ status: 'enviado' })
         .eq('id', contractData.id)
-        .select('*, profiles(full_name, dni, id), assets_valuation(description, asset_type)')
+        .select('*, profiles(full_name, cuit, id), assets_valuation(description, asset_type)')
         .single()
 
       if (error) {

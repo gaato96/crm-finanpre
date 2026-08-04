@@ -53,6 +53,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
+import { requestWithdrawal, createSelfServiceInvestment } from './actions'
 
 export default function PortalHomePage() {
   const { user, profile } = useAuth()
@@ -171,9 +172,13 @@ export default function PortalHomePage() {
     valConfig
   ])
 
-  // Ticker states for real-time calculation
-  const [tickerARS, setTickerARS] = useState({ total: 0, initial: 0, gains: 0, eps: 0 })
-  const [tickerUSD, setTickerUSD] = useState({ total: 0, initial: 0, gains: 0, eps: 0 })
+  // Ticker state — un único objeto para provocar un solo re-render por tick
+  const [ticker, setTicker] = useState({
+    ars: { total: 0, initial: 0, gains: 0, eps: 0 },
+    usd: { total: 0, initial: 0, gains: 0, eps: 0 },
+  })
+  const tickerARS = ticker.ars
+  const tickerUSD = ticker.usd
 
   const supabase = createClient()
 
@@ -266,106 +271,83 @@ export default function PortalHomePage() {
       }
     })
 
-    setTickerARS({ total: arsTotal, initial: arsInitial, gains: arsGains, eps: arsEps })
-    setTickerUSD({ total: usdTotal, initial: usdInitial, gains: usdGains, eps: usdEps })
+    setTicker({
+      ars: { total: arsTotal, initial: arsInitial, gains: arsGains, eps: arsEps },
+      usd: { total: usdTotal, initial: usdInitial, gains: usdGains, eps: usdEps },
+    })
   }, [contracts])
 
   useEffect(() => {
-    if (contracts.length === 0) return
-    updateRealtimeBalances()
-    const interval = setInterval(updateRealtimeBalances, 100)
-    return () => clearInterval(interval)
+    // Solo corre si hay capital generando interés; se detiene con la pestaña oculta
+    // para no consumir batería del teléfono en segundo plano.
+    const hasLiveContracts = contracts.some(
+      (c) => c.status === 'activo' || c.status === 'retiro_solicitado'
+    )
+    if (!hasLiveContracts) return
+
+    let interval: ReturnType<typeof setInterval> | null = null
+
+    const start = () => {
+      if (interval !== null) return
+      updateRealtimeBalances()
+      interval = setInterval(updateRealtimeBalances, 200)
+    }
+    const stop = () => {
+      if (interval !== null) {
+        clearInterval(interval)
+        interval = null
+      }
+    }
+    const onVisibilityChange = () => (document.hidden ? stop() : start())
+
+    start()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [contracts, updateRealtimeBalances])
 
-  // Request withdrawal handler
+  // Request withdrawal handler — validado en el servidor (titularidad, estado y bloqueo)
   const handleRequestWithdrawal = async (contractId: string) => {
     if (!confirm('¿Estás seguro de solicitar el retiro de esta inversión? Se suspenderá la generación de nuevos intereses una vez confirmado por el administrador.')) return
     setSubmitting(contractId)
 
-    try {
-      const today = new Date().toISOString()
-      const { error } = await supabase
-        .from('contracts')
-        .update({
-          status: 'retiro_solicitado',
-          withdrawal_requested_at: today,
-        })
-        .eq('id', contractId)
+    const result = await requestWithdrawal(contractId)
 
-      if (error) throw error
-
-      // Log event
-      await supabase.from('contract_events').insert({
-        contract_id: contractId,
-        event_type: 'withdrawal_requested',
-        ip_address: null,
-        user_agent: typeof window !== 'undefined' ? navigator.userAgent : null,
-      })
-
-      fetchContracts()
-    } catch (err: any) {
-      alert('Error al procesar solicitud: ' + err.message)
-    } finally {
-      setSubmitting(null)
+    if (result.error) {
+      alert('Error al procesar solicitud: ' + result.error)
+    } else {
+      await fetchContracts()
     }
+    setSubmitting(null)
   }
 
   const handleCreateContractSelfService = async () => {
     if (!user) return
     setGeneratingContract(true)
-    try {
-      const start = new Date(newInvStartDate + 'T12:00:00')
-      const end = new Date(start)
-      end.setDate(end.getDate() + 30) // 30 days cycle
-      
-      const adjustedEnd = adjustToNextBusinessDay(end.toISOString().split('T')[0])
-      const signToken = typeof window !== 'undefined' && window.crypto?.randomUUID 
-        ? window.crypto.randomUUID() 
-        : Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
 
-      const rate = newInvCurrency === 'ARS' ? monthlyYieldConfig.ars_monthly_rate : monthlyYieldConfig.usd_monthly_rate
+    const result = await createSelfServiceInvestment({
+      currency: newInvCurrency,
+      capital: newInvCapital,
+      startDate: newInvStartDate,
+    })
 
-      const { data, error } = await supabase
-        .from('contracts')
-        .insert({
-          client_id: user.id,
-          initial_capital: newInvCapital,
-          current_capital: newInvCapital,
-          currency: newInvCurrency,
-          monthly_rate: rate,
-          start_date: newInvStartDate,
-          end_date: adjustedEnd,
-          status: 'enviado',
-          sign_token: signToken,
-          template_id: activeTemplate?.id || null
-        })
-        .select('*')
-        .single()
-
-      if (error) throw error
-
-      // Log event
-      await supabase.from('contract_events').insert({
-        contract_id: data.id,
-        event_type: 'sent',
-        ip_address: null,
-        user_agent: typeof window !== 'undefined' ? navigator.userAgent : null,
-        metadata: { client_created: true }
-      })
-
-      // Open signing URL in new window and redirect parent
-      const signUrl = `/firmar/${signToken}`
-      window.open(signUrl, '_blank')
-      
-      alert('¡Inversión creada con éxito! Se abrirá el contrato en una nueva pestaña para que lo firmes y confirmes la transferencia.')
-      fetchContracts()
-      setActiveTab('activas')
-      setNewInvStep(1)
-    } catch (err: any) {
-      alert('Error al generar el contrato: ' + err.message)
-    } finally {
+    if (result.error || !result.signToken) {
+      alert('Error al generar el contrato: ' + (result.error || 'no se pudo generar el enlace de firma'))
       setGeneratingContract(false)
+      return
     }
+
+    // Open signing URL in new window
+    window.open(`/firmar/${result.signToken}`, '_blank')
+
+    alert('¡Inversión creada con éxito! Se abrirá el contrato en una nueva pestaña para que lo firmes y confirmes la transferencia.')
+    await fetchContracts()
+    setActiveTab('activas')
+    setNewInvStep(1)
+    setGeneratingContract(false)
   }
 
   const handleSubmitProposal = async (e: React.FormEvent) => {

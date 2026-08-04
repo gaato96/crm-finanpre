@@ -468,18 +468,22 @@ export default function ClientDetailPage() {
         {/* Right Column: Tabs */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="inversiones" className="space-y-4">
-            <TabsList className="bg-accent/50 p-1 w-full grid grid-cols-4">
-              <TabsTrigger value="inversiones" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
-                <TrendingUp className="w-3.5 h-3.5" /> Inversiones
+            <TabsList className="bg-accent/50 p-1 w-full grid grid-cols-4 gap-0.5">
+              <TabsTrigger value="inversiones" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-[11px] sm:text-sm px-1 sm:px-3">
+                <TrendingUp className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
+                <span className="truncate">Inversiones</span>
               </TabsTrigger>
-              <TabsTrigger value="activos" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
-                <Building2 className="w-3.5 h-3.5" /> Activos
+              <TabsTrigger value="activos" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-[11px] sm:text-sm px-1 sm:px-3">
+                <Building2 className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
+                <span className="truncate">Activos</span>
               </TabsTrigger>
-              <TabsTrigger value="creditos" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
-                <CreditCard className="w-3.5 h-3.5" /> Créditos
+              <TabsTrigger value="creditos" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-[11px] sm:text-sm px-1 sm:px-3">
+                <CreditCard className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
+                <span className="truncate">Créditos</span>
               </TabsTrigger>
-              <TabsTrigger value="scoring" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-xs sm:text-sm">
-                <Sparkles className="w-3.5 h-3.5" /> Scoring IA
+              <TabsTrigger value="scoring" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary gap-1.5 text-[11px] sm:text-sm px-1 sm:px-3">
+                <Sparkles className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
+                <span className="truncate">Scoring</span>
               </TabsTrigger>
             </TabsList>
 

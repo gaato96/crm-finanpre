@@ -128,56 +128,23 @@ export default function PublicSigningPage() {
         setLoading(true)
         setErrorMsg(null)
 
-        // Fetch contract by sign_token
-        const { data: contractData, error: contractErr } = await supabase
-          .from('contracts')
-          .select('*, profiles(*)')
-          .eq('sign_token', uuid)
-          .single()
+        // El contrato, el firmante, la plantilla y los datos bancarios se resuelven
+        // en una única función del servidor acotada a este token de firma.
+        const { data, error } = await supabase.rpc('get_contract_for_signing', { p_token: uuid })
 
-        if (contractErr || !contractData) {
+        if (error || !data?.contract) {
           setErrorMsg('El enlace de firma no es válido o ha expirado. Comprobá el link e intentá nuevamente.')
           setLoading(false)
           return
         }
 
-        setContract(contractData as Contract & { profiles: Profile })
+        setContract({ ...data.contract, profiles: data.profile } as Contract & { profiles: Profile })
 
-        // Fetch specific contract template or fallback
-        let templateData = null
-
-        if (contractData.template_id) {
-          const { data } = await supabase
-            .from('contract_templates')
-            .select('*')
-            .eq('id', contractData.template_id)
-            .single()
-          templateData = data
+        if (data.template) {
+          setTemplate(data.template as ContractTemplate)
         }
-
-        if (!templateData) {
-          // Check if linked to a credit
-          const { data: creditLink } = await supabase
-            .from('credits')
-            .select('id')
-            .eq('contract_id', contractData.id)
-            .maybeSingle()
-          
-          const fallbackType = creditLink ? 'credito' : 'inversion'
-
-          const { data } = await supabase
-            .from('contract_templates')
-            .select('*')
-            .eq('type', fallbackType)
-            .eq('is_active', true)
-            .order('version', { ascending: false })
-            .limit(1)
-            .single()
-          templateData = data
-        }
-
-        if (templateData) {
-          setTemplate(templateData as ContractTemplate)
+        if (data.bank_details) {
+          setBankDetails(data.bank_details as any)
         }
       } catch (err: any) {
         console.error('Error fetching contract:', err)
@@ -189,18 +156,6 @@ export default function PublicSigningPage() {
 
     fetchContract()
   }, [uuid, supabase])
-
-  // Fetch bank transfer details
-  useEffect(() => {
-    supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'bank_transfer_details')
-      .maybeSingle()
-      .then((res: { data: { value: any } | null; error: any }) => {
-        if (res.data?.value) setBankDetails(res.data.value as any)
-      })
-  }, [supabase])
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -328,59 +283,20 @@ export default function PublicSigningPage() {
 
       setSignedPdfUrl(publicUrl)
 
-      // 5. Update Contract in Database
-      const { error: updateErr } = await supabase
-        .from('contracts')
-        .update({
-          status: contract.asset_id ? 'en_consignacion' : 'pendiente_fondos',
-          contract_signed_at: today.toISOString(),
-          signer_ip: ip,
-          contract_hash: documentHash,
-          contract_pdf_url: publicUrl,
-        })
-        .eq('id', contract.id)
-
-      if (updateErr) throw updateErr
-
-      // 5.5 If the contract is linked to an asset, add it to assets_available
-      if (contract.asset_id) {
-        const { data: assetVal } = await supabase
-          .from('assets_valuation')
-          .select('*')
-          .eq('id', contract.asset_id)
-          .single()
-
-        if (assetVal) {
-          // Check if it already exists in assets_available to avoid duplicates
-          const { data: existingAvail } = await supabase
-            .from('assets_available')
-            .select('id')
-            .eq('asset_valuation_id', contract.asset_id)
-            .maybeSingle()
-
-          if (!existingAvail) {
-            const capitalizedType = assetVal.asset_type.charAt(0).toUpperCase() + assetVal.asset_type.slice(1)
-            await supabase.from('assets_available').insert({
-              asset_valuation_id: contract.asset_id,
-              title: `${capitalizedType} - ${assetVal.description}`,
-              description: `Recibido como forma de pago / inversión de ${contract.profiles?.full_name || 'cliente'}.`,
-              asset_type: assetVal.asset_type,
-              listed_value: assetVal.market_value,
-              currency: assetVal.currency || 'USD',
-              status: 'disponible'
-            })
-          }
-        }
-      }
-
-      // 6. Log contract signature event
-      await supabase.from('contract_events').insert({
-        contract_id: contract.id,
-        event_type: 'signed',
-        ip_address: ip,
-        user_agent: navigator.userAgent,
-        metadata: { hash: documentHash, url: publicUrl },
+      // 5. Registrar la firma: cambio de estado, alta del activo en consignación
+      // y evento de auditoría se resuelven en una sola operación del servidor.
+      const { data: signResult, error: signErr } = await supabase.rpc('sign_contract', {
+        p_token: uuid,
+        p_ip: ip,
+        p_hash: documentHash,
+        p_pdf_url: publicUrl,
+        p_user_agent: navigator.userAgent,
       })
+
+      if (signErr) throw signErr
+      if (signResult?.error && !signResult?.already_signed) {
+        throw new Error(signResult.error)
+      }
 
       setSignSuccess(true)
     } catch (err: any) {
@@ -570,7 +486,7 @@ export default function PublicSigningPage() {
                 id="check-read"
                 checked={checkRead}
                 onChange={(e) => setCheckRead(e.target.checked)}
-                className="mt-1 w-4.5 h-4.5 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
+                className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
               />
               <label
                 htmlFor="check-read"
@@ -586,7 +502,7 @@ export default function PublicSigningPage() {
                 id="check-legal"
                 checked={checkLegal}
                 onChange={(e) => setCheckLegal(e.target.checked)}
-                className="mt-1 w-4.5 h-4.5 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
+                className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
               />
               <label
                 htmlFor="check-legal"
@@ -597,6 +513,22 @@ export default function PublicSigningPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Sin datos bancarios cargados: el cliente igual debe saber cómo seguir */}
+        {checkRead && checkLegal && !bankDetails && (
+          <Card className="border border-blue-500/30 bg-blue-950/20 animate-fade-in">
+            <CardContent className="p-4 flex gap-3 text-xs text-blue-300">
+              <Building2 className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-semibold text-blue-200">Datos de transferencia</p>
+                <p className="text-slate-400 leading-relaxed">
+                  Tu asesor de RENDIMAX te enviará los datos de la cuenta bancaria apenas registres tu firma.
+                  El contrato se activa cuando se confirma la acreditación de los fondos.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Bank Transfer Details — only when both boxes are confirmed */}
         {checkRead && checkLegal && bankDetails && (
