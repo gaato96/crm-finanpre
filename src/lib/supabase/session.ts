@@ -116,7 +116,8 @@ export async function updateSession(request: NextRequest) {
         pathname === '/admin' ||
         pathname.startsWith('/admin/clientes') ||
         pathname.startsWith('/admin/contratos') ||
-        pathname.startsWith('/admin/creditos')
+        pathname.startsWith('/admin/creditos') ||
+        pathname.startsWith('/admin/perfil')
 
       if (!isAllowedVendedorRoute) {
         return NextResponse.redirect(new URL('/admin', request.url))

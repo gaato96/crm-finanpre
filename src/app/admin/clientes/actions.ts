@@ -1,28 +1,6 @@
 ﻿'use server'
 
-import { createClient } from '@supabase/supabase-js'
-
-function getAdminClient() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY
-  if (!serviceRoleKey) {
-    throw new Error(
-      'La variable SUPABASE_SERVICE_ROLE_KEY no está configurada. ' +
-      'Ve al panel de Supabase -> Project Settings -> API, ' +
-      'copia la clave "service_role" y agrégala a tu archivo .env.local.'
-    )
-  }
-
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
+import { requireStaff, getServiceClient as getAdminClient, AuthorizationError } from '@/lib/auth-guard'
 
 export async function adminCreateClient(data: {
   email: string
@@ -36,6 +14,13 @@ export async function adminCreateClient(data: {
   notes?: string
 }) {
   try {
+    // Alta de clientes: solo personal autorizado (admin o vendedor)
+    await requireStaff()
+
+    if (!data.email || !data.password || data.password.length < 8) {
+      return { error: 'Email y contraseña (mínimo 8 caracteres) son obligatorios.' }
+    }
+
     const supabase = getAdminClient()
 
     // Create auth user with email already confirmed (no verification email needed)
@@ -75,6 +60,7 @@ export async function adminCreateClient(data: {
 
     return { success: true, userId }
   } catch (err: any) {
+    if (err instanceof AuthorizationError) return { error: err.message }
     return { error: err.message || 'Error desconocido del servidor' }
   }
 }
@@ -85,6 +71,8 @@ export async function generateCreditScoring(
   costOfLiving: number
 ) {
   try {
+    await requireStaff()
+
     const geminiKey = process.env.GEMINI_API_KEY
     let result: { report: string; recommendation: string; limit: number }
 
@@ -179,6 +167,7 @@ export async function generateCreditScoring(
 
     return { success: true, result }
   } catch (err: any) {
+    if (err instanceof AuthorizationError) return { error: err.message }
     return { error: err.message || 'Error desconocido al generar scoring' }
   }
 }

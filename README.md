@@ -33,10 +33,11 @@ Los scripts de `supabase/` se ejecutan **en orden** desde el SQL Editor de Supab
 | 9 | `v10_migration.sql` | Rendimiento mensual y WhatsApp del administrador |
 | 10 | `v11_migration.sql` | Teléfono y domicilio en el alta por registro |
 | 11 | `v12_migration.sql` | **Tipos de crédito, fecha de pago elegible, desglose capital/interés, índices** |
-| 12 | `v13_migration.sql` | **Cierre de fugas públicas: RPC de firma, ajustes públicos y bloqueo de escritura del inversor** |
+| 12 | `v13_migration.sql` | Cierre de fugas públicas: RPC de firma, ajustes públicos y bloqueo de escritura del inversor |
+| 13 | `v14_migration.sql` | **Rol fijo en el registro público, freno a la escalada de privilegios, plantillas visibles al firmante y cierre de la subida anónima al bucket** |
 
-> `v12` y `v13` deben ejecutarse **antes** de desplegar esta versión del código: el módulo
-> de créditos, la pantalla de firma y la landing dependen de esas columnas y funciones.
+> Cada migración debe ejecutarse **antes** de desplegar el código que la usa. `v14` es
+> especialmente importante: sin ella, cualquiera puede registrarse con rol de administrador.
 
 ## Modalidades de crédito
 
@@ -65,6 +66,14 @@ solo enruta.
 
 ## Notas de seguridad
 
+- **Las server actions son endpoints HTTP públicos.** Toda acción administrativa valida al
+  llamante con `requireAdmin()` / `requireStaff()` (`src/lib/auth-guard.ts`) antes de usar la
+  clave de servicio. Nunca alcanza con que la pantalla que la invoca esté protegida.
+- El alta pública siempre crea perfiles `investor`: el rol nunca se toma de
+  `raw_user_meta_data`, que lo escribe quien llama a `auth.signUp`.
+- Un trigger impide cambiar `profiles.role` a quien no sea administrador.
+- **No guardes usuarios ni contraseñas en el repositorio.** `supabase/seed.sql` es solo para
+  entornos de prueba y las cuentas que documentaba deben considerarse comprometidas.
 - Las operaciones del inversor (alta de inversión y solicitud de retiro) pasan por
   server actions en `src/app/portal/actions.ts`: el navegador no puede fijar su propia tasa
   ni cambiar el estado de un contrato.

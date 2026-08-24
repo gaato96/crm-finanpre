@@ -1,7 +1,6 @@
 'use server'
 
-import { createClient as createServerClient } from '@/lib/supabase/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { getServiceClient, getCurrentUser } from '@/lib/auth-guard'
 import { adjustToNextBusinessDay } from '@/lib/helpers'
 
 /** Días antes del vencimiento en los que ya no se admite solicitud de retiro. */
@@ -9,20 +8,9 @@ const WITHDRAWAL_LOCK_DAYS = 12
 const MIN_INVESTMENT_ARS = 100_000
 const MIN_INVESTMENT_USD = 100
 
-function getServiceClient() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY
-  if (!serviceRoleKey) {
-    throw new Error('La variable SUPABASE_SERVICE_ROLE_KEY no está configurada en el entorno.')
-  }
-  return createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
-
 /** Devuelve el usuario autenticado a partir de la cookie de sesión. */
 async function requireUser() {
-  const supabase = await createServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) throw new Error('Sesión expirada. Volvé a iniciar sesión.')
   return user
 }

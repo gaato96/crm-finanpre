@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useAuth } from '@/context/auth-context'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -43,6 +45,8 @@ import {
   Trash2,
   Check,
   Loader2,
+  Power,
+  Eraser,
 } from 'lucide-react'
 import { formatDate, formatDateTime, getContractStatusLabel, getContractStatusColor, formatCurrency } from '@/lib/helpers'
 import type { Contract, ContractTemplate, Profile } from '@/lib/types'
@@ -65,6 +69,11 @@ interface ContractWithProfile extends Contract {
 }
 
 export default function ContratosPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+  const initialTab = searchParams.get('tab') === 'plantillas' ? 'plantillas' : 'contratos'
   const [contracts, setContracts] = useState<ContractWithProfile[]>([])
   const [templates, setTemplates] = useState<ContractTemplate[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,10 +91,11 @@ export default function ContratosPage() {
         .from('contracts')
         .select('*, profiles(*)')
         .order('created_at', { ascending: false }),
+      // Se listan todas: las inactivas también deben verse para poder activarlas o borrarlas
       supabase
         .from('contract_templates')
         .select('*')
-        .eq('is_active', true)
+        .order('is_active', { ascending: false })
         .order('created_at', { ascending: false }),
     ])
     setContracts((contractsRes.data || []) as ContractWithProfile[])
@@ -150,18 +160,32 @@ export default function ContratosPage() {
     setSubmittingId(null)
   }
 
-  const handleDeleteDraft = async (contractId: string) => {
-    if (!confirm('¿Seguro que querés eliminar este borrador?')) return
-    setSubmittingId(contractId)
+  const handleDeleteContract = async (contract: ContractWithProfile) => {
+    const esBorrador = contract.status === 'borrador'
+    const aviso = esBorrador
+      ? '¿Seguro que querés eliminar este borrador?'
+      : `¿Eliminar definitivamente el contrato de ${contract.profiles?.full_name || 'este cliente'}?
+
+` +
+        `Estado: ${getContractStatusLabel(contract.status)}
+` +
+        `Capital: ${formatCurrency(Number(contract.initial_capital), contract.currency)}
+
+` +
+        'Se borra también su historial de eventos. Si tiene un crédito asociado, el crédito se conserva pero queda sin contrato. Esta acción no se puede deshacer.'
+
+    if (!confirm(aviso)) return
+
+    setSubmittingId(contract.id)
     const supabase = createClient()
     const { error } = await supabase
       .from('contracts')
       .delete()
-      .eq('id', contractId)
+      .eq('id', contract.id)
     if (!error) {
       await fetchData()
     } else {
-      alert('Error al eliminar borrador: ' + error.message)
+      alert('No se pudo eliminar el contrato: ' + error.message)
     }
     setSubmittingId(null)
   }
@@ -186,24 +210,79 @@ export default function ContratosPage() {
   }
 
   const handleDuplicateTemplate = async (template: ContractTemplate) => {
+    setSubmittingId(template.id)
     const supabase = createClient()
-    const newName = `Copia de ${template.name}`
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('contract_templates')
       .insert({
-        name: newName,
+        name: `Copia de ${template.name}`,
         type: template.type,
         content: template.content,
         variables: template.variables,
         is_active: false,
         version: 1,
       })
+      .select('id')
+      .single()
+
+    setSubmittingId(null)
 
     if (error) {
       alert('Error al duplicar la plantilla: ' + error.message)
-    } else {
-      fetchData()
+      return
     }
+    // La copia nace inactiva: se abre directamente para editarla y activarla
+    router.push(`/admin/contratos/plantillas/${data.id}`)
+  }
+
+  const handleToggleTemplate = async (template: ContractTemplate) => {
+    setSubmittingId(template.id)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('contract_templates')
+      .update({ is_active: !template.is_active })
+      .eq('id', template.id)
+    setSubmittingId(null)
+    if (error) {
+      alert('No se pudo cambiar el estado: ' + error.message)
+      return
+    }
+    fetchData()
+  }
+
+  const handleDeleteTemplate = async (template: ContractTemplate) => {
+    if (!confirm(`¿Eliminar la plantilla "${template.name}"?
+
+Los contratos ya emitidos con ella conservan su PDF firmado.`)) return
+    setSubmittingId(template.id)
+    const supabase = createClient()
+    const { error } = await supabase.from('contract_templates').delete().eq('id', template.id)
+    setSubmittingId(null)
+    if (error) {
+      alert('No se pudo eliminar: ' + error.message)
+      return
+    }
+    fetchData()
+  }
+
+  const handleDeleteInactiveTemplates = async () => {
+    const inactive = templates.filter(t => !t.is_active)
+    if (inactive.length === 0) return
+    if (!confirm(`¿Eliminar ${inactive.length} plantillas inactivas?
+
+Se borran todas las que estén marcadas como Inactiva. Las activas no se tocan.`)) return
+    setSubmittingId('bulk')
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('contract_templates')
+      .delete()
+      .in('id', inactive.map(t => t.id))
+    setSubmittingId(null)
+    if (error) {
+      alert('No se pudieron eliminar: ' + error.message)
+      return
+    }
+    fetchData()
   }
 
   const filterButtons: { key: FilterType; label: string }[] = [
@@ -250,7 +329,7 @@ export default function ContratosPage() {
         </div>
       )}
 
-      <Tabs defaultValue="contratos">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="bg-muted/50">
           <TabsTrigger value="contratos" className="gap-2">
             <FileText className="w-4 h-4" />
@@ -356,13 +435,14 @@ export default function ContratosPage() {
                           </Button>
                         )}
 
-                        {contract.status === 'borrador' && (
+                        {isAdmin && (
                           <Button
                             size="sm"
                             variant="outline"
                             className="h-8 gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10"
-                            onClick={() => handleDeleteDraft(contract.id)}
+                            onClick={() => handleDeleteContract(contract)}
                             disabled={submittingId === contract.id}
+                            title="Eliminar contrato"
                           >
                             {submittingId === contract.id ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -407,15 +487,33 @@ export default function ContratosPage() {
 
         {/* TAB: Plantillas */}
         <TabsContent value="plantillas" className="space-y-4 mt-4">
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-muted-foreground">Plantillas de contratos reutilizables</p>
-            <Link
-              href="/admin/contratos/plantillas/nueva"
-              className={cn(buttonVariants(), "gap-2 bg-primary hover:bg-primary/90")}
-            >
-              <Plus className="w-4 h-4" />
-              Nueva Plantilla
-            </Link>
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              {templates.length} plantilla{templates.length === 1 ? '' : 's'} ·{' '}
+              {templates.filter(t => t.is_active).length} activa{templates.filter(t => t.is_active).length === 1 ? '' : 's'}
+            </p>
+            <div className="flex gap-2">
+              {isAdmin && templates.some(t => !t.is_active) && (
+                <Button
+                  variant="outline"
+                  onClick={handleDeleteInactiveTemplates}
+                  disabled={submittingId === 'bulk'}
+                  className="gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10"
+                >
+                  {submittingId === 'bulk'
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Eraser className="w-4 h-4" />}
+                  Limpiar inactivas ({templates.filter(t => !t.is_active).length})
+                </Button>
+              )}
+              <Link
+                href="/admin/contratos/plantillas/nueva"
+                className={cn(buttonVariants(), "gap-2 bg-primary hover:bg-primary/90")}
+              >
+                <Plus className="w-4 h-4" />
+                Nueva Plantilla
+              </Link>
+            </div>
           </div>
 
           {templates.length === 0 ? (
@@ -462,10 +560,10 @@ export default function ContratosPage() {
                       <span>{formatDate(t.created_at)}</span>
                     </div>
                     <Separator className="mb-3" />
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <Link
                         href={`/admin/contratos/plantillas/${t.id}`}
-                        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "flex-1 gap-2")}
+                        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "gap-2")}
                       >
                         <PenLine className="w-3.5 h-3.5" />
                         Editar
@@ -474,11 +572,38 @@ export default function ContratosPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleDuplicateTemplate(t)}
-                        className="flex-1 gap-2 border-primary/20 hover:bg-primary/5 text-primary hover:text-primary"
+                        disabled={submittingId === t.id}
+                        className="gap-2 border-primary/20 hover:bg-primary/5 text-primary hover:text-primary"
                       >
-                        <Copy className="w-3.5 h-3.5" />
+                        {submittingId === t.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Copy className="w-3.5 h-3.5" />}
                         Duplicar
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleToggleTemplate(t)}
+                        disabled={submittingId === t.id}
+                        className={cn('gap-2', t.is_active
+                          ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10'
+                          : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10')}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        {t.is_active ? 'Desactivar' : 'Activar'}
+                      </Button>
+                      {isAdmin && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteTemplate(t)}
+                          disabled={submittingId === t.id}
+                          className="gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Eliminar
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

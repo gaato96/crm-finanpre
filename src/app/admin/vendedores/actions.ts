@@ -1,26 +1,6 @@
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
-
-function getAdminClient() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SERVICE_ROLE_KEY
-  if (!serviceRoleKey) {
-    throw new Error(
-      'La variable SUPABASE_SERVICE_ROLE_KEY no está configurada.'
-    )
-  }
-
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
+import { requireAdmin, getServiceClient as getAdminClient, AuthorizationError } from '@/lib/auth-guard'
 
 export async function adminCreateSeller(data: {
   email: string
@@ -30,6 +10,13 @@ export async function adminCreateSeller(data: {
   phone?: string
 }) {
   try {
+    // Crear una cuenta de vendedor da acceso al panel: solo un admin puede hacerlo
+    await requireAdmin()
+
+    if (!data.email || !data.password || data.password.length < 8) {
+      return { error: 'Email y contraseña (mínimo 8 caracteres) son obligatorios.' }
+    }
+
     const supabase = getAdminClient()
 
     // Create auth user with vendedor role in metadata
@@ -71,13 +58,27 @@ export async function adminCreateSeller(data: {
 
     return { success: true, userId }
   } catch (err: any) {
+    if (err instanceof AuthorizationError) return { error: err.message }
     return { error: err.message || 'Error desconocido del servidor' }
   }
 }
 
 export async function adminDeleteSeller(sellerId: string) {
   try {
+    await requireAdmin()
+
     const supabase = getAdminClient()
+
+    // Solo se admite borrar cuentas de vendedor desde esta pantalla
+    const { data: target } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', sellerId)
+      .single()
+
+    if (target?.role !== 'vendedor') {
+      return { error: 'Esta acción solo puede eliminar cuentas de vendedor.' }
+    }
 
     // Delete auth user (cascades to public.profiles due to foreign key references ON DELETE CASCADE)
     const { error: deleteError } = await supabase.auth.admin.deleteUser(sellerId)
@@ -88,6 +89,7 @@ export async function adminDeleteSeller(sellerId: string) {
 
     return { success: true }
   } catch (err: any) {
+    if (err instanceof AuthorizationError) return { error: err.message }
     return { error: err.message || 'Error al eliminar vendedor' }
   }
 }

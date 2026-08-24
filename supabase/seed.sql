@@ -1,29 +1,22 @@
 -- ================================================================
--- FINANPRE — SEED DATA
--- Run this AFTER schema.sql and AFTER creating auth users in Supabase
+-- RENDIMAX — SEED DATA (solo para entornos de prueba)
+-- Ejecutar DESPUÉS de schema.sql y de crear los usuarios en Supabase Auth
 -- ================================================================
--- 
--- INSTRUCTIONS:
--- 1. First, create the following users in Supabase Auth (Dashboard > Authentication > Users):
---    
---    ADMINS:
---    - admin1@finanpre.com / password: Admin123! (copy the UUID)
---    - admin2@finanpre.com / password: Admin123! (copy the UUID)
---    
---    INVESTORS:
---    - inversor1@finanpre.com / password: Investor123!
---    - inversor2@finanpre.com / password: Investor123!
---    - inversor3@finanpre.com / password: Investor123!
---    
---    DEBTORS (also investors role):
---    - deudor1@finanpre.com / password: Deudor123!
---    - deudor2@finanpre.com / password: Deudor123!
 --
--- 2. Replace the UUIDs below with the actual UUIDs from Supabase Auth.
--- 3. Run this SQL in the Supabase SQL Editor.
+-- ⚠️  NO USAR EN PRODUCCIÓN.
+--
+-- Este archivo antes documentaba usuarios y contraseñas de ejemplo en texto
+-- plano. Como el repositorio es público, cualquiera podía leerlas e iniciar
+-- sesión si esas cuentas seguían existiendo. Se quitaron.
+--
+-- INSTRUCCIONES:
+-- 1. Creá los usuarios desde Supabase (Dashboard > Authentication > Users)
+--    con contraseñas propias, largas y únicas. No las escribas acá.
+-- 2. Copiá los UUID generados y reemplazalos en el bloque DO de abajo.
+-- 3. Ejecutá este SQL en el editor de Supabase.
 -- ================================================================
 
--- Replace these with actual UUIDs from auth.users
+-- Reemplazar por los UUID reales de auth.users
 DO $$
 DECLARE
   admin1_id UUID := '65a8be00-fefe-416b-a808-e8c07c7b4833'; -- Replace

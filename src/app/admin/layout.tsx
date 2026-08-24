@@ -22,6 +22,7 @@ import {
   Briefcase,
   Megaphone,
   Settings,
+  UserCog,
 } from 'lucide-react'
 
 const navItems = [
@@ -34,6 +35,7 @@ const navItems = [
   { href: '/admin/activos', label: 'Activos Disponibles', icon: Package, roles: ['admin'] },
   { href: '/admin/anuncios', label: 'Anuncios', icon: Megaphone, roles: ['admin'] },
   { href: '/admin/configuracion', label: 'Configuración', icon: Settings, roles: ['admin'] },
+  { href: '/admin/perfil', label: 'Mi Cuenta', icon: UserCog, roles: ['admin', 'vendedor'] },
 ]
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
