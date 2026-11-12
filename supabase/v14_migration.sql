@@ -72,14 +72,17 @@ CREATE TRIGGER on_profile_role_change
 -- Un vendedor tampoco debería poder eliminar perfiles ni tocar administradores.
 DROP POLICY IF EXISTS "Vendedor access to profiles" ON public.profiles;
 
+DROP POLICY IF EXISTS "Vendedor lee perfiles" ON public.profiles;
 CREATE POLICY "Vendedor lee perfiles"
 ON public.profiles FOR SELECT
 USING (public.get_my_role() = 'vendedor');
 
+DROP POLICY IF EXISTS "Vendedor crea clientes" ON public.profiles;
 CREATE POLICY "Vendedor crea clientes"
 ON public.profiles FOR INSERT
 WITH CHECK (public.get_my_role() = 'vendedor' AND role = 'investor');
 
+DROP POLICY IF EXISTS "Vendedor edita clientes" ON public.profiles;
 CREATE POLICY "Vendedor edita clientes"
 ON public.profiles FOR UPDATE
 USING (public.get_my_role() = 'vendedor' AND role = 'investor')
@@ -115,6 +118,7 @@ USING (is_active = TRUE);
 -- efectivamente pendiente de firma, y con el nombre exacto que le corresponde.
 DROP POLICY IF EXISTS "Public insert access to contracts bucket" ON storage.objects;
 
+DROP POLICY IF EXISTS "Subida del PDF de un contrato pendiente de firma" ON storage.objects;
 CREATE POLICY "Subida del PDF de un contrato pendiente de firma"
 ON storage.objects FOR INSERT
 WITH CHECK (

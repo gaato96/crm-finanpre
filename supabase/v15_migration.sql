@@ -847,7 +847,11 @@ VALUES ('automation_config', '{"late_threshold_days": 10, "auto_reinvest": true}
 ON CONFLICT (key) DO NOTHING;
 
 
--- Reinversión automática: sólo inversiones vencidas sin retiro solicitado
+-- Reinversión automática: sólo inversiones vencidas sin retiro solicitado.
+-- La v9 la definió como RETURNS void; ahora devuelve la cantidad de contratos
+-- reinvertidos, y CREATE OR REPLACE no puede cambiar el tipo de retorno.
+DROP FUNCTION IF EXISTS public.check_and_reinvest_expired_contracts();
+
 CREATE OR REPLACE FUNCTION public.check_and_reinvest_expired_contracts()
 RETURNS INTEGER
 LANGUAGE plpgsql
