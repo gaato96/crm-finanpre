@@ -142,10 +142,13 @@ REVOKE ALL ON public.ledger_entries FROM anon;
 -- Las políticas eran FOR ALL: un vendedor podía borrar una inversión activa
 -- firmada junto con todo su historial de eventos.
 DROP POLICY IF EXISTS "Vendedor access to contracts" ON public.contracts;
+DROP POLICY IF EXISTS "Vendedor lee contratos" ON public.contracts;
 CREATE POLICY "Vendedor lee contratos"
 ON public.contracts FOR SELECT USING (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor crea contratos" ON public.contracts;
 CREATE POLICY "Vendedor crea contratos"
 ON public.contracts FOR INSERT WITH CHECK (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor edita contratos" ON public.contracts;
 CREATE POLICY "Vendedor edita contratos"
 ON public.contracts FOR UPDATE
 USING (public.get_my_role() = 'vendedor')
@@ -153,28 +156,36 @@ WITH CHECK (public.get_my_role() = 'vendedor');
 -- (sin política de DELETE: sólo el administrador puede borrar)
 
 DROP POLICY IF EXISTS "Vendedor access to credits" ON public.credits;
+DROP POLICY IF EXISTS "Vendedor lee creditos" ON public.credits;
 CREATE POLICY "Vendedor lee creditos"
 ON public.credits FOR SELECT USING (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor crea creditos" ON public.credits;
 CREATE POLICY "Vendedor crea creditos"
 ON public.credits FOR INSERT WITH CHECK (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor edita creditos" ON public.credits;
 CREATE POLICY "Vendedor edita creditos"
 ON public.credits FOR UPDATE
 USING (public.get_my_role() = 'vendedor')
 WITH CHECK (public.get_my_role() = 'vendedor');
 
 DROP POLICY IF EXISTS "Vendedor access to credit_installments" ON public.credit_installments;
+DROP POLICY IF EXISTS "Vendedor lee cuotas" ON public.credit_installments;
 CREATE POLICY "Vendedor lee cuotas"
 ON public.credit_installments FOR SELECT USING (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor crea cuotas" ON public.credit_installments;
 CREATE POLICY "Vendedor crea cuotas"
 ON public.credit_installments FOR INSERT WITH CHECK (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor edita cuotas" ON public.credit_installments;
 CREATE POLICY "Vendedor edita cuotas"
 ON public.credit_installments FOR UPDATE
 USING (public.get_my_role() = 'vendedor')
 WITH CHECK (public.get_my_role() = 'vendedor');
 
 DROP POLICY IF EXISTS "Vendedor access to contract_events" ON public.contract_events;
+DROP POLICY IF EXISTS "Vendedor lee eventos" ON public.contract_events;
 CREATE POLICY "Vendedor lee eventos"
 ON public.contract_events FOR SELECT USING (public.get_my_role() = 'vendedor');
+DROP POLICY IF EXISTS "Vendedor crea eventos" ON public.contract_events;
 CREATE POLICY "Vendedor crea eventos"
 ON public.contract_events FOR INSERT WITH CHECK (public.get_my_role() = 'vendedor');
 
@@ -793,11 +804,13 @@ UPDATE storage.buckets SET public = FALSE WHERE id = 'contracts';
 DROP POLICY IF EXISTS "Public read access to contracts bucket" ON storage.objects;
 DROP POLICY IF EXISTS "Subida del PDF de un contrato pendiente de firma" ON storage.objects;
 
+DROP POLICY IF EXISTS "Personal lee PDFs de contratos" ON storage.objects;
 CREATE POLICY "Personal lee PDFs de contratos"
 ON storage.objects FOR SELECT
 TO authenticated
 USING (bucket_id = 'contracts' AND public.get_my_role() IN ('admin', 'vendedor'));
 
+DROP POLICY IF EXISTS "Inversor lee el PDF de sus contratos" ON storage.objects;
 CREATE POLICY "Inversor lee el PDF de sus contratos"
 ON storage.objects FOR SELECT
 TO authenticated
