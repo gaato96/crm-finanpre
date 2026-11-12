@@ -54,6 +54,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
 import { requestWithdrawal, createSelfServiceInvestment } from './actions'
+import { ContractPdfButton } from '@/components/ContractPdfButton'
 
 export default function PortalHomePage() {
   const { user, profile } = useAuth()
@@ -184,10 +185,14 @@ export default function PortalHomePage() {
 
   const fetchContracts = useCallback(async () => {
     if (!user) return
+    // Sólo inversiones: los créditos también generan una fila en `contracts`,
+    // y sin este filtro el deudor veía su préstamo listado como inversión
+    // propia, con el ticker de interés compuesto corriendo a favor suyo.
     const { data } = await supabase
       .from('contracts')
       .select('*')
       .eq('client_id', user.id)
+      .eq('kind', 'inversion')
       .order('created_at', { ascending: false })
 
     setContracts(data || [])
@@ -440,9 +445,14 @@ export default function PortalHomePage() {
     )
   }
 
-  // Active contracts list
-  const activeContracts = contracts.filter(
-    (c) => c.status === 'activo' || c.status === 'retiro_solicitado' || c.status === 'pendiente_fondos' || c.status === 'enviado'
+  // Inversiones en curso.
+  // `en_consignacion` y `borrador` faltaban: un contrato firmado con un activo
+  // en consignación no entraba en ninguna de las dos listas y desaparecía del
+  // portal justo después de que el cliente lo firmaba.
+  const activeContracts = contracts.filter((c) =>
+    ['activo', 'retiro_solicitado', 'pendiente_fondos', 'en_consignacion', 'enviado', 'borrador'].includes(
+      c.status
+    )
   )
 
   // Completed contracts / withdrawals list
@@ -843,16 +853,11 @@ export default function PortalHomePage() {
                         </div>
                       </div>
 
-                      {contract.contract_pdf_url && (
-                        <a
-                          href={contract.contract_pdf_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "h-8 gap-1.5 border-border/50 text-xs text-muted-foreground hover:text-foreground shrink-0 self-end sm:self-center flex items-center justify-center")}
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Contrato PDF
-                        </a>
+                      {contract.contract_signed_at && (
+                        <ContractPdfButton
+                          contractId={contract.id}
+                          className="h-8 border-border/50 text-xs text-muted-foreground hover:text-foreground self-end sm:self-center"
+                        />
                       )}
                     </div>
                   </CardContent>

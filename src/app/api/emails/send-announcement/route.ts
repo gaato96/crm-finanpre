@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@/lib/supabase/server'
+import { escapeHtml } from '@/lib/helpers'
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,6 +31,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Faltan datos del anuncio' }, { status: 400 })
     }
 
+    // El título y el contenido se inyectaban crudos en el HTML del correo:
+    // un simple `<` en el texto rompía el mail de todos los destinatarios.
+    const safeTitle = escapeHtml(title)
+    const safeContent = escapeHtml(content)
+
     // Fetch all investor emails
     const { data: investors, error: investorsError } = await supabase
       .from('profiles')
@@ -56,7 +62,7 @@ export async function POST(req: NextRequest) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${safeTitle}</title>
 </head>
 <body style="margin:0;padding:0;background:#0d1117;font-family:'Helvetica Neue',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#0d1117;padding:40px 20px;">
@@ -79,8 +85,8 @@ export async function POST(req: NextRequest) {
           <!-- Content -->
           <tr>
             <td style="background:${colors.bg};border-radius:0 0 16px 16px;padding:24px 40px 40px;">
-              <h1 style="color:#f1f5f9;font-size:24px;font-weight:800;margin:0 0 16px;line-height:1.3;">${title}</h1>
-              <div style="color:#94a3b8;font-size:15px;line-height:1.7;white-space:pre-line;">${content}</div>
+              <h1 style="color:#f1f5f9;font-size:24px;font-weight:800;margin:0 0 16px;line-height:1.3;">${safeTitle}</h1>
+              <div style="color:#94a3b8;font-size:15px;line-height:1.7;white-space:pre-line;">${safeContent}</div>
               <!-- CTA -->
               <div style="margin-top:32px;text-align:center;">
                 <a href="${appUrl}/portal"
@@ -124,7 +130,7 @@ export async function POST(req: NextRequest) {
           chunk.map((email) => ({
             from,
             to: email,
-            subject: `[RENDIMAX] ${title}`,
+            subject: `[RENDIMAX] ${title}`.slice(0, 180),
             html: htmlContent,
           }))
         )

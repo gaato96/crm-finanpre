@@ -19,6 +19,7 @@ import {
   Trash2,
   Percent,
   Phone,
+  AlertTriangle,
 } from 'lucide-react'
 
 export default function ConfiguracionPage() {
@@ -31,14 +32,16 @@ export default function ConfiguracionPage() {
   const [newZoneName, setNewZoneName] = useState('')
   const [newZonePrice, setNewZonePrice] = useState('')
 
-  // New configurations
-  const [bcraYield, setBcraYield] = useState<number>(40)
+  // Datos bancarios: arrancan vacíos a propósito.
+  // Venían con un banco, un CBU y un CUIT inventados hardcodeados: si nadie
+  // entraba a editarlos, el firmante recibía esos datos falsos como destino
+  // real de su transferencia.
   const [bankDetails, setBankDetails] = useState({
-    banco: 'Banco Galicia',
-    cbu: '0070089020000000001234',
-    alias: 'RENDIMAX.INVERSION',
-    titular: 'RENDIMAX S.A.',
-    cuit: '30-71700000-0'
+    banco: '',
+    cbu: '',
+    alias: '',
+    titular: '',
+    cuit: '',
   })
   const [monthlyYield, setMonthlyYield] = useState({
     ars_monthly_rate: 8.5,
@@ -51,9 +54,8 @@ export default function ConfiguracionPage() {
   useEffect(() => {
     const fetchConfig = async () => {
       setLoading(true)
-      const [valRes, bcraRes, bankRes, yieldRes, whatsappRes] = await Promise.all([
+      const [valRes, bankRes, yieldRes, whatsappRes] = await Promise.all([
         supabase.from('system_settings').select('value').eq('key', 'valuation_config').maybeSingle(),
-        supabase.from('system_settings').select('value').eq('key', 'bcra_yield_config').maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'bank_transfer_details').maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'monthly_yield_config').maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'admin_whatsapp').maybeSingle(),
@@ -61,9 +63,6 @@ export default function ConfiguracionPage() {
 
       if (valRes.data && valRes.data.value) {
         setConfig(valRes.data.value as ValuationConfig)
-      }
-      if (bcraRes.data && bcraRes.data.value) {
-        setBcraYield((bcraRes.data.value as any).rendimiento_minimo_anual || 40)
       }
       if (bankRes.data && bankRes.data.value) {
         setBankDetails(bankRes.data.value as any)
@@ -84,15 +83,10 @@ export default function ConfiguracionPage() {
     setSaving(true)
     setStatus(null)
 
-    const [valErr, bcraErr, bankErr, yieldErr, whatsappErr] = await Promise.all([
+    const [valErr, bankErr, yieldErr, whatsappErr] = await Promise.all([
       supabase.from('system_settings').upsert({
         key: 'valuation_config',
         value: config,
-        updated_at: new Date().toISOString(),
-      }),
-      supabase.from('system_settings').upsert({
-        key: 'bcra_yield_config',
-        value: { rendimiento_minimo_anual: Number(bcraYield) || 40 },
         updated_at: new Date().toISOString(),
       }),
       supabase.from('system_settings').upsert({
@@ -112,8 +106,20 @@ export default function ConfiguracionPage() {
       })
     ])
 
-    if (valErr.error || bcraErr.error || bankErr.error || yieldErr.error || whatsappErr.error) {
-      setStatus({ type: 'error', message: 'Error al guardar los ajustes.' })
+    // Se nombra qué falló: un mensaje genérico dejaba al admin sin saber si
+    // se guardó algo o nada
+    const failures = [
+      valErr.error && 'tasación',
+      bankErr.error && 'datos bancarios',
+      yieldErr.error && 'rendimiento mensual',
+      whatsappErr.error && 'WhatsApp',
+    ].filter(Boolean)
+
+    if (failures.length > 0) {
+      setStatus({
+        type: 'error',
+        message: `No se pudo guardar: ${failures.join(', ')}. El resto sí se guardó.`,
+      })
     } else {
       setStatus({ type: 'success', message: 'Ajustes guardados correctamente.' })
       setTimeout(() => setStatus(null), 3000)
@@ -661,6 +667,17 @@ export default function ConfiguracionPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
+            {/* Si están vacíos, el firmante no ve a dónde transferir */}
+            {!bankDetails.cbu?.trim() && (
+              <div className="mb-5 flex gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-200/90 leading-relaxed">
+                  Todavía no cargaste los datos bancarios. Hasta que lo hagas, al firmar un
+                  contrato el cliente ve un aviso de que su asesor se los enviará aparte.
+                  Cargá datos reales: esto es lo que se usa para recibir el dinero.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="bankName">Nombre del Banco</Label>

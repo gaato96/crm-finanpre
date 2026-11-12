@@ -24,6 +24,8 @@ import {
   ArrowRight
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/helpers'
+import { checkPassword } from '@/lib/password'
+import { PasswordField } from '@/components/PasswordField'
 
 export default function RegistroPage() {
   const router = useRouter()
@@ -38,6 +40,9 @@ export default function RegistroPage() {
   const [address, setAddress] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
+  /** El proyecto puede exigir confirmar el correo: en ese caso no hay sesión. */
+  const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false)
 
   // Yield settings
   const [rates, setRates] = useState({ ars: 8.5, usd: 5.0 })
@@ -80,21 +85,32 @@ export default function RegistroPage() {
     setError(null)
     setLoading(true)
 
+    const cleanCuit = cuit.replace(/\D/g, '')
+    const cleanEmail = email.trim().toLowerCase()
+
     // Basic validation
-    if (!fullName || !cuit || !phone || !address || !email || !password) {
+    if (!fullName.trim() || !cleanCuit || !phone.trim() || !address.trim() || !cleanEmail || !password) {
       setError('Por favor completá todos los campos.')
       setLoading(false)
       return
     }
 
-    if (cuit.replace(/\D/g, '').length !== 11) {
+    if (cleanCuit.length !== 11) {
       setError('El CUIT debe tener 11 dígitos.')
       setLoading(false)
       return
     }
 
-    if (password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres.')
+    if (!acceptedTerms) {
+      setError('Tenés que aceptar los términos y el tratamiento de tus datos para continuar.')
+      setLoading(false)
+      return
+    }
+
+    // Misma política que el resto del sistema (antes acá bastaban 6 caracteres)
+    const passwordCheck = checkPassword(password)
+    if (!passwordCheck.valid) {
+      setError(passwordCheck.error ?? 'La contraseña no cumple los requisitos.')
       setLoading(false)
       return
     }
@@ -102,28 +118,57 @@ export default function RegistroPage() {
     try {
       const supabase = createClient()
 
+      // `profiles.cuit` es UNIQUE: si el CUIT ya existe, auth.signUp crea el
+      // usuario pero el trigger del perfil falla y queda una cuenta inservible.
+      // Se verifica antes de crear nada.
+      const { data: cuitAvailable, error: cuitError } = await supabase.rpc('is_cuit_available', {
+        p_cuit: cleanCuit,
+      })
+
+      if (cuitError) {
+        console.error('CUIT check error:', cuitError.message)
+      } else if (cuitAvailable === false) {
+        setError(
+          'Ese CUIT ya está registrado. Si la cuenta es tuya, iniciá sesión o recuperá tu contraseña.'
+        )
+        setLoading(false)
+        return
+      }
+
       // 1. Sign up user
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: cleanEmail,
         password,
         options: {
+          // El rol NO se manda: el trigger siempre crea perfiles 'investor'
+          // (v14). Dejarlo acá permitía pedir role='admin' desde el navegador.
           data: {
-            full_name: fullName,
-            cuit: cuit.replace(/\D/g, ''),
-            phone: phone,
-            address: address,
-            role: 'investor'
-          }
-        }
+            full_name: fullName.trim(),
+            cuit: cleanCuit,
+            phone: phone.trim(),
+            address: address.trim(),
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal`,
+        },
       })
 
       if (signUpError) {
+        if (/already registered|already exists|User already/i.test(signUpError.message)) {
+          setError('Ya existe una cuenta con ese correo. Iniciá sesión o recuperá tu contraseña.')
+          setLoading(false)
+          return
+        }
         throw signUpError
       }
 
       if (!authData.user) {
         throw new Error('No se pudo crear el usuario.')
       }
+
+      // Si el proyecto exige confirmar el correo, signUp no devuelve sesión:
+      // antes el flujo seguía como si el usuario ya estuviera dentro y el
+      // último paso lo mandaba al portal, que lo rebotaba al login.
+      setNeedsEmailConfirmation(!authData.session)
 
       // Success, move to step 2 (Simulation)
       setStep(2)
@@ -143,7 +188,7 @@ export default function RegistroPage() {
   // Projections calculations
   const projections = [
     { months: 1, label: '1 Mes', colorClass: 'bg-blue-500/10 border-blue-500/20 text-blue-400' },
-    { months: 3, label: '3 Meses', colorClass: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' },
+    { months: 3, label: '3 Meses', colorClass: 'bg-blue-500/10 border-blue-500/20 text-blue-400' },
     { months: 6, label: '6 Meses', colorClass: 'bg-amber-500/10 border-amber-500/20 text-amber-400' },
     { months: 12, label: '12 Meses', colorClass: 'bg-purple-500/10 border-purple-500/20 text-purple-400' },
   ].map(p => {
@@ -157,9 +202,9 @@ export default function RegistroPage() {
   })
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#090d16] text-slate-100 flex flex-col justify-center items-center p-4 relative selection:bg-emerald-500/30 selection:text-emerald-300">
+    <div className="min-h-screen overflow-x-hidden bg-[#090d16] text-slate-100 flex flex-col justify-center items-center p-4 relative selection:bg-blue-500/30 selection:text-blue-300">
       {/* Background decoration */}
-      <div className="absolute top-10 left-10 w-[300px] h-[300px] bg-emerald-500/5 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-10 left-10 w-[300px] h-[300px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-[400px] h-[400px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-xl space-y-6 z-10">
@@ -167,11 +212,11 @@ export default function RegistroPage() {
         <div className="flex flex-col items-center gap-2 text-center">
           <div 
             onClick={() => router.push('/')}
-            className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20 cursor-pointer"
+            className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/20 cursor-pointer"
           >
             <TrendingUp className="w-5 h-5 text-white" />
           </div>
-          <h2 className="text-2xl font-bold tracking-wider bg-gradient-to-r from-emerald-400 to-emerald-200 bg-clip-text text-transparent">
+          <h2 className="text-2xl font-bold tracking-wider bg-gradient-to-r from-blue-400 to-blue-200 bg-clip-text text-transparent">
             RENDIMAX
           </h2>
           <p className="text-xs text-slate-400">Creá tu Cuenta de Inversor</p>
@@ -179,9 +224,9 @@ export default function RegistroPage() {
 
         {/* Step Indicators */}
         <div className="flex items-center justify-center gap-2 px-8">
-          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 1 ? 'bg-emerald-500' : 'bg-white/10'}`} />
-          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 2 ? 'bg-emerald-500' : 'bg-white/10'}`} />
-          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 3 ? 'bg-emerald-500' : 'bg-white/10'}`} />
+          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 1 ? 'bg-blue-500' : 'bg-white/10'}`} />
+          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 2 ? 'bg-blue-500' : 'bg-white/10'}`} />
+          <div className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${step >= 3 ? 'bg-blue-500' : 'bg-white/10'}`} />
         </div>
 
         {error && (
@@ -196,7 +241,7 @@ export default function RegistroPage() {
           <Card className="glass-card border-white/5">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <User className="w-5 h-5 text-emerald-400" />
+                <User className="w-5 h-5 text-blue-400" />
                 1. Datos Personales
               </CardTitle>
               <CardDescription>
@@ -212,6 +257,7 @@ export default function RegistroPage() {
                       <User className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                       <Input
                         id="fullName"
+                        required
                         placeholder="Ej: Juan Pérez"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
@@ -225,6 +271,7 @@ export default function RegistroPage() {
                       <Hash className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                       <Input
                         id="cuit"
+                        required
                         placeholder="20-12345678-9"
                         value={cuit}
                         onChange={(e) => setCuit(e.target.value)}
@@ -241,6 +288,7 @@ export default function RegistroPage() {
                       <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                       <Input
                         id="phone"
+                        required
                         placeholder="Ej: 3814000000"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
@@ -254,6 +302,7 @@ export default function RegistroPage() {
                       <MapPin className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                       <Input
                         id="address"
+                        required
                         placeholder="Ej: Av. Aconquija 1200"
                         value={address}
                         onChange={(e) => setAddress(e.target.value)}
@@ -270,6 +319,8 @@ export default function RegistroPage() {
                     <Input
                       id="email"
                       type="email"
+                      required
+                      autoComplete="email"
                       placeholder="email@ejemplo.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
@@ -278,25 +329,34 @@ export default function RegistroPage() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">Contraseña</Label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="pl-9 bg-white/5 border-white/10"
-                    />
-                  </div>
-                </div>
+                <PasswordField
+                  value={password}
+                  onChange={setPassword}
+                  showStrength
+                  autoComplete="new-password"
+                  className="bg-white/5 border-white/10"
+                />
+
+                {/* Consentimiento: es un alta de servicio financiero, hace falta
+                    dejar registro de que el usuario aceptó las condiciones. */}
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={(e) => setAcceptedTerms(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 shrink-0 rounded border-white/20 bg-white/5 text-blue-500 focus:ring-blue-500 focus:ring-offset-[#090d16] focus:ring-2 cursor-pointer"
+                  />
+                  <span className="text-[11px] text-slate-400 leading-relaxed group-hover:text-slate-300 transition-colors">
+                    Acepto las condiciones del servicio y el tratamiento de mis datos personales
+                    conforme a la Ley 25.326. Entiendo que toda inversión implica riesgo y que los
+                    rendimientos informados son estimados, no garantizados.
+                  </span>
+                </label>
 
                 <Button
                   type="submit"
-                  disabled={loading}
-                  className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2 mt-2"
+                  disabled={loading || !acceptedTerms}
+                  className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-blue-500/10 transition-all flex items-center justify-center gap-2 mt-2"
                 >
                   {loading ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -313,7 +373,7 @@ export default function RegistroPage() {
                   ¿Ya tenés cuenta?{' '}
                   <span 
                     onClick={() => router.push('/login')} 
-                    className="text-emerald-400 hover:underline cursor-pointer font-medium"
+                    className="text-blue-400 hover:underline cursor-pointer font-medium"
                   >
                     Iniciá sesión aquí
                   </span>
@@ -328,7 +388,7 @@ export default function RegistroPage() {
           <Card className="glass-card border-white/5">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Calculator className="w-5 h-5 text-emerald-400" />
+                <Calculator className="w-5 h-5 text-blue-400" />
                 2. Simular Inversión de Bienvenida
               </CardTitle>
               <CardDescription>
@@ -345,7 +405,7 @@ export default function RegistroPage() {
                       onClick={() => setSimCurrency('ARS')}
                       className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
                         simCurrency === 'ARS'
-                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
+                          ? 'bg-blue-500/15 border-blue-500 text-blue-400'
                           : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10'
                       }`}
                     >
@@ -356,7 +416,7 @@ export default function RegistroPage() {
                       onClick={() => setSimCurrency('USD')}
                       className={`py-2 px-3 rounded-lg border text-xs font-semibold transition-all ${
                         simCurrency === 'USD'
-                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
+                          ? 'bg-blue-500/15 border-blue-500 text-blue-400'
                           : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10'
                       }`}
                     >
@@ -407,7 +467,7 @@ export default function RegistroPage() {
 
               <Button
                 onClick={handleStep2Submit}
-                className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-blue-500/10 transition-all flex items-center justify-center gap-2"
               >
                 Confirmar y Ver Siguientes Pasos <ChevronRight className="w-4 h-4" />
               </Button>
@@ -419,43 +479,64 @@ export default function RegistroPage() {
         {step === 3 && (
           <Card className="glass-card border-white/5 text-center p-6 space-y-6">
             <CardHeader className="flex flex-col items-center">
-              <CheckCircle2 className="w-16 h-16 text-emerald-400 animate-pulse" />
+              <CheckCircle2 className="w-16 h-16 text-blue-400" />
               <CardTitle className="text-xl font-bold mt-4">¡Tu Cuenta fue Creada Exitosamente!</CardTitle>
               <CardDescription className="text-slate-400">
-                Tu perfil de inversor ya se encuentra activo en el ecosistema
+                {needsEmailConfirmation
+                  ? 'Falta un paso: confirmar tu correo electrónico'
+                  : 'Tu perfil de inversor ya se encuentra activo en el ecosistema'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Sin sesión no se puede entrar al portal: hay que confirmar el
+                  correo primero. Antes el botón llevaba al portal y rebotaba. */}
+              {needsEmailConfirmation && (
+                <div className="text-left p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex gap-3">
+                  <Mail className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-200/90 leading-relaxed">
+                    Te enviamos un correo a <strong>{email}</strong> con un enlace de verificación.
+                    Hacé clic ahí y después iniciá sesión para entrar a tu portal. Si no lo ves,
+                    revisá la carpeta de correo no deseado.
+                  </p>
+                </div>
+              )}
               <div className="text-left space-y-4 bg-white/5 border border-white/5 p-5 rounded-2xl">
                 <h4 className="font-bold text-sm text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-emerald-400" /> Próximos pasos para tu Inversión:
+                  <FileText className="w-4 h-4 text-blue-400" /> Próximos pasos para tu Inversión:
                 </h4>
                 
                 <ul className="space-y-3 text-xs text-slate-400">
                   <li className="flex gap-2 items-start">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0">1</span>
+                    <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center shrink-0">1</span>
                     <span><strong>Completá los datos de tu inversión:</strong> Moneda, Capital y Fecha de Inicio desde tu portal.</span>
                   </li>
                   <li className="flex gap-2 items-start">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0">2</span>
+                    <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center shrink-0">2</span>
                     <span><strong>Revisá y firmá el contrato:</strong> Se generará en base a la plantilla legal predefinida y lo firmarás de manera digital.</span>
                   </li>
                   <li className="flex gap-2 items-start">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0">3</span>
+                    <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center shrink-0">3</span>
                     <span><strong>Realizá la transferencia:</strong> El portal te mostrará los datos de cuenta bancaria.</span>
                   </li>
                   <li className="flex gap-2 items-start">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0">4</span>
+                    <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-bold flex items-center justify-center shrink-0">4</span>
                     <span><strong>¡Listo!</strong> El administrador acreditará los fondos y tu inversión comenzará a rendir intereses segundo a segundo.</span>
                   </li>
                 </ul>
               </div>
 
               <Button
-                onClick={() => router.replace(`/portal?currency=${simCurrency}&capital=${simCapital}`)}
-                className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2"
+                onClick={() =>
+                  router.replace(
+                    needsEmailConfirmation
+                      ? '/login'
+                      : `/portal?currency=${simCurrency}&capital=${simCapital}`
+                  )
+                }
+                className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-blue-500/10 transition-all flex items-center justify-center gap-2"
               >
-                Ingresar a mi Portal de Inversor <ArrowRight className="w-4 h-4 ml-1.5" />
+                {needsEmailConfirmation ? 'Ir a iniciar sesión' : 'Ingresar a mi Portal de Inversor'}
+                <ArrowRight className="w-4 h-4 ml-1.5" />
               </Button>
             </CardContent>
           </Card>

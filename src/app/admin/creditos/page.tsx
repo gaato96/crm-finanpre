@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import type { Profile, Credit, CreditInstallment, ContractTemplate, Contract, AssetValuation, CreditType } from '@/lib/types'
 import { formatCurrency, formatDate, formatWhatsAppUrl } from '@/lib/helpers'
+import { useAuth } from '@/context/auth-context'
 import {
   generateSchedule,
   summarizeSchedule,
@@ -37,6 +38,7 @@ import {
   Equal,
   BadgeCheck,
   CalendarPlus,
+  Undo2,
 } from 'lucide-react'
 
 type CreditRow = Credit & {
@@ -58,6 +60,8 @@ export default function CreditosPage() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const supabase = createClient()
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
 
   // Form
   const [formClient, setFormClient] = useState('')
@@ -71,6 +75,8 @@ export default function CreditosPage() {
   const [selectedCredit, setSelectedCredit] = useState<CreditRow | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [creditAction, setCreditAction] = useState<string | null>(null)
+  /** Error de la última operación, en pantalla en vez de alert(). */
+  const [actionError, setActionError] = useState<string | null>(null)
 
   // Asset Financing states
   const [availableAssets, setAvailableAssets] = useState<any[]>([])
@@ -163,98 +169,42 @@ export default function CreditosPage() {
     })
 
     if (schedule.length === 0) {
-      alert('No se pudo generar el plan de cuotas. Revisá el capital, la tasa, la cantidad de cuotas y la fecha de la primera cuota.')
+      setActionError(
+        'No se pudo generar el plan de cuotas. Revisá el capital, la tasa, la cantidad de cuotas y la fecha de la primera cuota.'
+      )
       return
     }
 
     setSubmitting(true)
+    setActionError(null)
 
     try {
-      // 1. Create the contract first
-      const today = new Date()
-      const lastDueDate = schedule[schedule.length - 1].due_date
+      // Todo el alta corre en una sola transacción del lado de la base.
+      // Antes eran 3 INSERT sueltos (contrato → crédito → cuotas): si fallaba
+      // el último quedaba un crédito sin cuotas y un contrato huérfano, sin
+      // ninguna forma de deshacerlo.
+      const { data, error } = await supabase.rpc('create_credit_with_schedule', {
+        p_client_id: formClient,
+        p_total: total,
+        p_rate: rate,
+        p_installments: numInst,
+        p_currency: formCurrency,
+        p_credit_type: formType,
+        p_first_due_date: formFirstDueDate,
+        p_late_rate: lateRate,
+        p_template_id: selectedTemplateId || null,
+        p_available_asset_id: selectedAvailableAssetId || null,
+        p_schedule: schedule,
+      })
 
-      // Check if we have an asset associated
-      let assetValuationId = null
-      const selectedAsset = availableAssets.find(a => a.id === selectedAvailableAssetId)
-      if (selectedAsset) {
-        assetValuationId = selectedAsset.asset_valuation_id
-      }
-
-      const { data: contract, error: contractError } = await supabase.from('contracts').insert({
-        client_id: formClient,
-        asset_id: assetValuationId,
-        initial_capital: total,
-        current_capital: total,
-        currency: formCurrency,
-        monthly_rate: rate,
-        start_date: today.toISOString().split('T')[0],
-        end_date: lastDueDate,
-        status: 'enviado', // Ready to sign
-        template_id: selectedTemplateId || null,
-      }).select().single()
-
-      if (contractError) throw contractError
-
-      const contractId = contract?.id || null
-
-      // 2. Create the credit
-      const { data: credit, error: creditError } = await supabase.from('credits').insert({
-        client_id: formClient,
-        total_amount: total,
-        interest_rate: rate,
-        total_installments: numInst,
-        status: 'vigente',
-        contract_id: contractId,
-        daily_late_interest_rate: lateRate,
-        currency: formCurrency,
-        credit_type: formType,
-        first_due_date: formFirstDueDate,
-        payment_day: new Date(formFirstDueDate + 'T12:00:00').getDate(),
-      }).select().single()
-
-      if (creditError) throw creditError
-
-      if (credit) {
-        const { error: installmentsError } = await supabase.from('credit_installments').insert(
-          schedule.map(inst => ({
-            credit_id: credit.id,
-            installment_number: inst.installment_number,
-            amount: inst.amount,
-            principal_amount: inst.principal_amount,
-            interest_amount: inst.interest_amount,
-            is_interest_only: inst.is_interest_only,
-            due_date: inst.due_date,
-            status: 'pendiente' as const,
-            paid_at: null,
-            late_interest: 0,
-          }))
-        )
-
-        if (installmentsError) throw installmentsError
-
-        // If we linked an available asset, we should update its status to 'vendido'
-        if (selectedAvailableAssetId) {
-          await supabase
-            .from('assets_available')
-            .update({ status: 'vendido' })
-            .eq('id', selectedAvailableAssetId)
-
-          // Also update the asset status in assets_valuation to 'financiado'
-          if (assetValuationId) {
-            await supabase
-              .from('assets_valuation')
-              .update({ status: 'financiado' })
-              .eq('id', assetValuationId)
-          }
-        }
-      }
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
 
       setDialogOpen(false)
       resetForm()
       await fetchData()
     } catch (err: any) {
-      alert('Error al crear el crédito: ' + (err?.message || 'error desconocido'))
+      setActionError('No se pudo crear el crédito: ' + (err?.message || 'error desconocido'))
     } finally {
       setSubmitting(false)
     }
@@ -274,29 +224,42 @@ export default function CreditosPage() {
     }
     if (!confirm(confirmMsg)) return
 
-    const { error } = await supabase.from('credit_installments').update({
-      status: 'pagado',
-      paid_at: new Date().toISOString(),
-      late_interest: lateInterest,
-      paid_amount: total,
-    }).eq('id', instId)
+    setActionError(null)
 
-    if (error) {
-      alert('Error al registrar el cobro: ' + error.message)
+    // La RPC marca la cuota, deja el asiento en el libro mayor, finaliza el
+    // crédito si no queda nada pendiente y lo saca de 'moroso' si se puso al día.
+    const { data, error } = await supabase.rpc('collect_installment', {
+      p_installment_id: instId,
+      p_late_interest: lateInterest,
+    })
+
+    if (error || data?.error) {
+      setActionError('No se pudo registrar el cobro: ' + (error?.message ?? data.error))
       return
     }
 
-    // En cuotas fijas/decrecientes, si ya no queda nada pendiente el crédito se finaliza solo
-    if (credit.credit_type !== 'refinanciacion') {
-      const { count } = await supabase
-        .from('credit_installments')
-        .select('id', { count: 'exact', head: true })
-        .eq('credit_id', credit.id)
-        .neq('status', 'pagado')
+    fetchData()
+  }
 
-      if ((count ?? 0) === 0) {
-        await supabase.from('credits').update({ status: 'finalizado' }).eq('id', credit.id)
-      }
+  /** Revertir un cobro mal cargado. Sólo administrador, y queda asentado. */
+  const revertPayment = async (instId: string, installmentNumber: number) => {
+    if (
+      !confirm(
+        `¿Revertir el cobro de la cuota ${installmentNumber}?\n\n` +
+          'La cuota vuelve a quedar pendiente y se registra un asiento de ajuste ' +
+          'en el libro mayor (el movimiento original no se borra).'
+      )
+    )
+      return
+
+    setActionError(null)
+    const { data, error } = await supabase.rpc('revert_installment_payment', {
+      p_installment_id: instId,
+    })
+
+    if (error || data?.error) {
+      setActionError('No se pudo revertir el cobro: ' + (error?.message ?? data.error))
+      return
     }
 
     fetchData()
@@ -315,47 +278,17 @@ export default function CreditosPage() {
     )) return
 
     setCreditAction(credit.id)
+    setActionError(null)
     try {
-      const pending = (credit.credit_installments || []).filter(i => i.status !== 'pagado')
-      const nextNumber = Math.max(0, ...(credit.credit_installments || []).map(i => i.installment_number)) + 1
-
-      // La cuota de cancelación queda registrada como cobrada
-      const { error: payoffError } = await supabase.from('credit_installments').insert({
-        credit_id: credit.id,
-        installment_number: nextNumber,
-        amount: payoff,
-        principal_amount: Number(credit.total_amount),
-        interest_amount: payoff - Number(credit.total_amount),
-        is_interest_only: false,
-        is_payoff: true,
-        due_date: new Date().toISOString().split('T')[0],
-        status: 'pagado' as const,
-        paid_at: new Date().toISOString(),
-        paid_amount: payoff,
-        late_interest: 0,
-      })
-
-      if (payoffError) throw payoffError
-
-      // Se limpian las proyecciones de interés que ya no se van a cobrar
-      if (pending.length > 0) {
-        await supabase
-          .from('credit_installments')
-          .delete()
-          .in('id', pending.map(i => i.id))
-      }
-
-      const { error: creditError } = await supabase.from('credits').update({
-        status: 'finalizado',
-        payoff_amount: payoff,
-        payoff_at: new Date().toISOString(),
-      }).eq('id', credit.id)
-
-      if (creditError) throw creditError
+      // En una sola transacción: cuota de cancelación, limpieza de las
+      // proyecciones pendientes, cierre del crédito y asiento contable.
+      const { data, error } = await supabase.rpc('payoff_credit', { p_credit_id: credit.id })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
 
       await fetchData()
     } catch (err: any) {
-      alert('Error al cancelar la deuda: ' + (err?.message || 'error desconocido'))
+      setActionError('No se pudo cancelar la deuda: ' + (err?.message || 'error desconocido'))
     } finally {
       setCreditAction(null)
     }
@@ -363,7 +296,17 @@ export default function CreditosPage() {
 
   /** Refinanciación: agrega 12 meses más de cuotas de interés si el cliente sigue refinanciando. */
   const handleExtendProjection = async (credit: CreditRow) => {
+    // Agrega 12 filas a la base: conviene confirmarlo, antes no preguntaba nada
+    if (
+      !confirm(
+        `¿Extender la proyección de ${credit.profiles?.full_name} por 12 meses más?\n\n` +
+          'Se agregan 12 cuotas de solo interés a continuación de la última.'
+      )
+    )
+      return
+
     setCreditAction(credit.id)
+    setActionError(null)
     try {
       const existing = credit.credit_installments || []
       const lastNumber = Math.max(0, ...existing.map(i => i.installment_number))
@@ -396,7 +339,7 @@ export default function CreditosPage() {
 
       await fetchData()
     } catch (err: any) {
-      alert('Error al extender la proyección: ' + (err?.message || 'error desconocido'))
+      setActionError('No se pudo extender la proyección: ' + (err?.message || 'error desconocido'))
     } finally {
       setCreditAction(null)
     }
@@ -435,6 +378,20 @@ export default function CreditosPage() {
 
   return (
     <div className="space-y-6">
+      {/* Errores en pantalla: los alert() del navegador se pierden y no se copian */}
+      {actionError && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/30 animate-fade-in">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <p className="flex-1 text-sm text-red-300">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-red-400/60 hover:text-red-300 text-xs shrink-0"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="flex-1">
           <h1 className="text-2xl lg:text-3xl font-bold">Cartera de Créditos</h1>
@@ -991,7 +948,7 @@ export default function CreditosPage() {
                               )}
                             </div>
                           </div>
-                          {inst.status !== 'pagado' && (
+                          {inst.status !== 'pagado' ? (
                             <Button
                               size="sm"
                               onClick={() => markPaid(selectedCredit, inst.id, Number(inst.amount), lateInterest)}
@@ -1000,6 +957,21 @@ export default function CreditosPage() {
                               Cobrar
                               <span className="hidden sm:inline">&nbsp;{formatCurrency(total, selectedCredit.currency)}</span>
                             </Button>
+                          ) : (
+                            // Un cobro mal cargado no tenía forma de deshacerse:
+                            // había que tocar la base a mano.
+                            isAdmin && !inst.is_payoff && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Revertir este cobro"
+                                onClick={() => revertPayment(inst.id, inst.installment_number)}
+                                className="h-7 px-2 text-[11px] text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 shrink-0 gap-1"
+                              >
+                                <Undo2 className="w-3 h-3" />
+                                <span className="hidden sm:inline">Revertir</span>
+                              </Button>
+                            )
                           )}
                         </div>
                       )

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatCurrency, formatDate, isNearExpiration, daysRemaining, calculateCompoundCapital } from '@/lib/helpers'
+import { formatCurrency, formatDate, isNearExpiration, daysRemaining, calculateCompoundCapital, parseDbDate } from '@/lib/helpers'
 import type { Contract, Credit, AssetValuation } from '@/lib/types'
 import {
   DollarSign,
@@ -45,6 +45,8 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [dolarBlue, setDolarBlue] = useState<number | null>(null)
   const [bcraRate, setBcraRate] = useState<number | null>(null)
+  /** Momento de la carga: evita leer el reloj durante el render. */
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
 
   useEffect(() => {
     const fetchData = async () => {
@@ -63,6 +65,7 @@ export default function AdminDashboardPage() {
         assets: assetsRes.data || [],
         totalClients: clientsRes.count || 0,
       })
+      setLoadedAt(Date.now())
       setLoading(false)
     }
 
@@ -94,33 +97,62 @@ export default function AdminDashboardPage() {
     )
   }
 
-  const activeContracts = data.contracts.filter(c => c.status === 'activo')
-  const liquidezARS = activeContracts.filter(c => c.currency === 'ARS').reduce((s, c) => s + Number(c.initial_capital), 0)
-  const liquidezUSD = activeContracts.filter(c => c.currency === 'USD').reduce((s, c) => s + Number(c.initial_capital), 0)
+  // Sólo contratos de inversión: los créditos tienen su propia fila en
+  // `contracts` y sumarlos acá inflaba la liquidez con plata prestada.
+  const investmentContracts = data.contracts.filter(c => c.kind === 'inversion')
+  const activeContracts = investmentContracts.filter(c => c.status === 'activo')
+
+  // La deuda real con los inversores es el capital DEVENGADO, no el inicial.
+  // El dashboard mostraba el capital original mientras la alerta de retiro de
+  // la misma pantalla usaba el compuesto: dos cifras distintas para lo mismo.
+  const accruedOf = (c: Contract) => calculateCompoundCapital(c)
+  const liquidezARS = activeContracts.filter(c => c.currency === 'ARS').reduce((s, c) => s + accruedOf(c), 0)
+  const liquidezUSD = activeContracts.filter(c => c.currency === 'USD').reduce((s, c) => s + accruedOf(c), 0)
+  const aportadoARS = activeContracts.filter(c => c.currency === 'ARS').reduce((s, c) => s + Number(c.initial_capital), 0)
+  const aportadoUSD = activeContracts.filter(c => c.currency === 'USD').reduce((s, c) => s + Number(c.initial_capital), 0)
+  const interesDevengadoARS = liquidezARS - aportadoARS
+
   const nearExpiration = activeContracts.filter(c => isNearExpiration(c))
-  const totalCreditos = data.credits.filter(c => c.status === 'vigente').reduce((s, c) => s + Number(c.total_amount), 0)
-  const morosCount = data.credits.filter(c => c.status === 'moroso').length
-  const morosPct = data.credits.length > 0 ? (morosCount / data.credits.length) * 100 : 0
+
+  // Créditos: se separan por moneda en vez de sumar ARS y USD en un solo número
+  const vigentes = data.credits.filter(c => c.status === 'vigente' || c.status === 'moroso')
+  const creditosARS = vigentes.filter(c => (c.currency || 'ARS') === 'ARS').reduce((s, c) => s + Number(c.total_amount), 0)
+  const creditosUSD = vigentes.filter(c => c.currency === 'USD').reduce((s, c) => s + Number(c.total_amount), 0)
+
+  // Morosidad por MONTO expuesto, que es lo que realmente importa, no por
+  // cantidad de créditos (un moroso de $5M pesa distinto que uno de $50.000)
+  const morosos = data.credits.filter(c => c.status === 'moroso')
+  const morosCount = morosos.length
+  const montoMoroso = morosos.reduce((s, c) => s + Number(c.total_amount), 0)
+  const montoVigente = vigentes.reduce((s, c) => s + Number(c.total_amount), 0)
+  const morosPct = montoVigente > 0 ? (montoMoroso / montoVigente) * 100 : 0
 
   // Withdrawal and consignment alerts
-  const pendingWithdrawals = data.contracts.filter(c => c.status === 'retiro_solicitado')
-  const overdueConsignments = data.contracts.filter(
-    (c) => c.status === 'en_consignacion' && new Date(c.start_date) <= new Date()
-  )
-  const pendingFunds = data.contracts.filter(c => c.status === 'pendiente_fondos')
+  const pendingWithdrawals = investmentContracts.filter(c => c.status === 'retiro_solicitado')
+  // Una consignación está lista cuando termina SU plazo de consignación.
+  // Antes se comparaba contra `start_date`, que es otra cosa.
+  const overdueConsignments = investmentContracts.filter((c) => {
+    if (c.status !== 'en_consignacion') return false
+    const fin = c.consignacion_fin ?? c.start_date
+    return parseDbDate(fin).getTime() <= loadedAt
+  })
+  const pendingFunds = investmentContracts.filter(c => c.status === 'pendiente_fondos')
 
-  // Chart data: capital by category (from actual contract data)
-  const capitalARS = activeContracts.filter(c => c.currency === 'ARS').reduce((s, c) => s + Number(c.initial_capital), 0)
-  const capitalUSD = activeContracts.filter(c => c.currency === 'USD').reduce((s, c) => s + Number(c.initial_capital), 0)
-  const creditosVigentes = data.credits.filter(c => c.status === 'vigente').reduce((s, c) => s + Number(c.total_amount), 0)
-  const creditosMorosos = data.credits.filter(c => c.status === 'moroso').reduce((s, c) => s + Number(c.total_amount), 0)
+  // Gráfico: todo convertido a ARS con el dólar blue del día.
+  // Antes se graficaban pesos y dólares en las mismas barras, y el tooltip
+  // formateaba los USD como si fueran ARS.
+  const fx = dolarBlue ?? 0
+  const canConvert = fx > 0
+  const toArs = (usd: number) => usd * fx
 
-  const assetBreakdown = [
-    { name: 'Inv. Pesos', value: capitalARS, color: '#10b981' },
-    { name: 'Inv. Dólares', value: capitalUSD, color: '#3b82f6' },
-    { name: 'Créditos Vigentes', value: creditosVigentes, color: '#f59e0b' },
-    { name: 'Créditos Morosos', value: creditosMorosos, color: '#ef4444' },
-  ].filter(d => d.value > 0)
+  const assetBreakdown = canConvert
+    ? [
+        { name: 'Inv. Pesos', value: liquidezARS, color: '#3b82f6' },
+        { name: 'Inv. Dólares', value: toArs(liquidezUSD), color: '#06b6d4' },
+        { name: 'Créditos Vigentes', value: creditosARS + toArs(creditosUSD) - montoMoroso, color: '#f59e0b' },
+        { name: 'Créditos Morosos', value: montoMoroso, color: '#ef4444' },
+      ].filter(d => d.value > 0)
+    : []
 
   return (
     <div className="space-y-6">
@@ -182,7 +214,7 @@ export default function AdminDashboardPage() {
           <CardContent className="pt-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Liquidez Total</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Capital a devolver</p>
                 <div className="mt-2 space-y-1">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs border-emerald-accent/30 text-emerald-glow">ARS</Badge>
@@ -193,6 +225,12 @@ export default function AdminDashboardPage() {
                     <span className="text-lg font-bold">{formatCurrency(liquidezUSD, 'USD')}</span>
                   </div>
                 </div>
+                {interesDevengadoARS > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-1.5 leading-tight">
+                    Aportado ARS {formatCurrency(aportadoARS, 'ARS')} · interés devengado{' '}
+                    {formatCurrency(interesDevengadoARS, 'ARS')}
+                  </p>
+                )}
               </div>
               <div className="p-3 rounded-xl bg-primary/10">
                 <Wallet className="w-5 h-5 text-primary" />
@@ -241,9 +279,14 @@ export default function AdminDashboardPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Créditos Colocados</p>
-                <p className="text-2xl font-bold mt-2">{formatCurrency(totalCreditos, 'ARS')}</p>
+                <p className="text-xl font-bold mt-2">{formatCurrency(creditosARS, 'ARS')}</p>
+                {creditosUSD > 0 && (
+                  <p className="text-sm font-semibold text-blue-400">{formatCurrency(creditosUSD, 'USD')}</p>
+                )}
                 <p className={`text-xs mt-1 ${morosPct > 0 ? 'text-destructive' : 'text-emerald-glow'}`}>
-                  {morosPct > 0 ? `⚠ ${morosPct.toFixed(0)}% morosidad` : '✓ Sin morosidad'}
+                  {morosPct > 0
+                    ? `⚠ ${morosPct.toFixed(1)}% del monto en mora (${morosCount})`
+                    : '✓ Sin morosidad'}
                 </p>
               </div>
               <div className={`p-3 rounded-xl ${morosPct > 0 ? 'bg-destructive/10' : 'bg-primary/10'}`}>
@@ -332,7 +375,14 @@ export default function AdminDashboardPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-primary" />
-              <CardTitle className="text-base">Capital Operativo</CardTitle>
+              <div>
+                <CardTitle className="text-base">Capital Operativo</CardTitle>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {canConvert
+                    ? `Todo expresado en pesos — dólares convertidos a $${fx.toLocaleString('es-AR')} (blue venta)`
+                    : 'Esperando la cotización del dólar para unificar monedas'}
+                </p>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -358,8 +408,18 @@ export default function AdminDashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                <p>Sin datos de activos registrados</p>
+              <div className="h-64 flex flex-col items-center justify-center text-muted-foreground text-center px-6">
+                <BarChart3 className="w-10 h-10 mb-3 text-muted-foreground/20" />
+                <p className="text-sm">
+                  {canConvert
+                    ? 'Sin capital operativo registrado'
+                    : 'No se pudo obtener la cotización del dólar'}
+                </p>
+                {!canConvert && (
+                  <p className="text-xs mt-1 text-muted-foreground/60">
+                    El gráfico unifica monedas; sin cotización no se muestra para no mezclar pesos con dólares.
+                  </p>
+                )}
               </div>
             )}
           </CardContent>
@@ -430,8 +490,8 @@ export default function AdminDashboardPage() {
               <DollarSign className="w-4 h-4 text-blue-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{data.contracts.length}</p>
-              <p className="text-xs text-muted-foreground">Contratos Totales</p>
+              <p className="text-2xl font-bold">{investmentContracts.length}</p>
+              <p className="text-xs text-muted-foreground">Contratos de Inversión</p>
             </div>
           </CardContent>
         </Card>

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,13 +10,20 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { TrendingUp, Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // Mensajes que deja /auth/callback cuando un enlace de correo falla
+  useEffect(() => {
+    const queryError = searchParams.get('error')
+    if (queryError) setError(queryError)
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,7 +38,11 @@ export default function LoginPage() {
     })
 
     if (authError) {
-      setError('Credenciales inválidas. Verificá tu email y contraseña.')
+      setError(
+        /not confirmed/i.test(authError.message)
+          ? 'Tu correo todavía no está confirmado. Buscá el mail de verificación que te enviamos.'
+          : 'Credenciales inválidas. Verificá tu email y contraseña.'
+      )
       setLoading(false)
       return
     }
@@ -42,16 +54,28 @@ export default function LoginPage() {
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single()
 
-    if (profile?.role === 'admin' || profile?.role === 'vendedor') {
-      router.push('/admin')
+    // Una cuenta sin perfil no puede operar: antes quedaba rebotando en el
+    // portal sin datos y sin ninguna explicación.
+    if (profileError || !profile) {
+      await supabase.auth.signOut()
+      setError(
+        'Tu cuenta está creada pero le falta el perfil. Escribinos para que la activemos.'
+      )
+      setLoading(false)
+      return
+    }
+
+    // `replace` para que el botón "atrás" no vuelva al formulario ya usado
+    if (profile.role === 'admin' || profile.role === 'vendedor') {
+      router.replace('/admin')
     } else {
-      router.push('/portal')
+      router.replace('/portal')
     }
   }
 
@@ -96,9 +120,17 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-foreground/80">
-                  Contraseña
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-sm font-medium text-foreground/80">
+                    Contraseña
+                  </Label>
+                  <Link
+                    href="/recuperar"
+                    className="text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors"
+                  >
+                    ¿La olvidaste?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -145,12 +177,9 @@ export default function LoginPage() {
             <div className="mt-4 text-center">
               <p className="text-xs text-muted-foreground">
                 ¿No tenés cuenta?{' '}
-                <span
-                  onClick={() => router.push('/registro')}
-                  className="text-blue-400 hover:underline cursor-pointer font-semibold"
-                >
+                <Link href="/registro" className="text-blue-400 hover:underline font-semibold">
                   Registrate como inversor
-                </span>
+                </Link>
               </p>
             </div>
 
@@ -166,5 +195,23 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+/**
+ * `useSearchParams` obliga a envolver el formulario en Suspense para que la
+ * página pueda prerenderizarse.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   )
 }

@@ -7,6 +7,8 @@ import { adjustToNextBusinessDay } from '@/lib/helpers'
 const WITHDRAWAL_LOCK_DAYS = 12
 const MIN_INVESTMENT_ARS = 100_000
 const MIN_INVESTMENT_USD = 100
+/** Contratos sin firmar que un inversor puede tener abiertos a la vez. */
+const MAX_PENDING_CONTRACTS = 3
 
 /** Devuelve el usuario autenticado a partir de la cookie de sesión. */
 async function requireUser() {
@@ -34,12 +36,16 @@ export async function requestWithdrawal(contractId: string) {
 
     const { data: contract, error } = await admin
       .from('contracts')
-      .select('id, client_id, status, end_date')
+      .select('id, client_id, status, end_date, kind, currency')
       .eq('id', contractId)
       .single()
 
     if (error || !contract) return { error: 'No se encontró la inversión solicitada.' }
     if (contract.client_id !== user.id) return { error: 'Esta inversión no te pertenece.' }
+    // Un contrato de crédito no se "retira": es deuda del cliente, no capital suyo
+    if (contract.kind !== 'inversion') {
+      return { error: 'Este contrato no corresponde a una inversión.' }
+    }
     if (contract.status !== 'activo') {
       return { error: 'Solo se puede solicitar el retiro de una inversión activa.' }
     }
@@ -51,10 +57,21 @@ export async function requestWithdrawal(contractId: string) {
       }
     }
 
+    // Monto devengado al momento de pedir el retiro: queda registrado para que
+    // después se pueda auditar contra lo que efectivamente se pagó.
+    const { data: accrued } = await admin.rpc('contract_accrued_capital', {
+      p_contract_id: contractId,
+    })
+
     const now = new Date().toISOString()
     const { error: updateError } = await admin
       .from('contracts')
-      .update({ status: 'retiro_solicitado', withdrawal_requested_at: now })
+      .update({
+        status: 'retiro_solicitado',
+        withdrawal_requested_at: now,
+        withdrawal_requested_amount: accrued ?? null,
+        withdrawal_type: 'total',
+      })
       .eq('id', contractId)
 
     if (updateError) return { error: updateError.message }
@@ -62,10 +79,10 @@ export async function requestWithdrawal(contractId: string) {
     await admin.from('contract_events').insert({
       contract_id: contractId,
       event_type: 'withdrawal_requested',
-      metadata: { requested_at: now, source: 'portal' },
+      metadata: { requested_at: now, source: 'portal', accrued_amount: accrued ?? null },
     })
 
-    return { success: true }
+    return { success: true, amount: accrued ?? null }
   } catch (err: any) {
     return { error: err?.message || 'Error inesperado al procesar la solicitud.' }
   }
@@ -109,6 +126,22 @@ export async function createSelfServiceInvestment(input: {
     if (diffDays < 0) return { error: 'La fecha de inicio no puede ser anterior a hoy.' }
     if (diffDays > 30) return { error: 'La fecha de inicio no puede superar los 30 días desde hoy.' }
 
+    // Tope de contratos sin firmar: sin esto el portal permitía generar
+    // contratos pendientes sin límite y ensuciar la cartera del administrador.
+    const { count: pendingCount } = await admin
+      .from('contracts')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', user.id)
+      .eq('kind', 'inversion')
+      .in('status', ['borrador', 'enviado'])
+
+    if ((pendingCount ?? 0) >= MAX_PENDING_CONTRACTS) {
+      return {
+        error:
+          'Ya tenés inversiones pendientes de firma. Completá o cancelá esas antes de generar otra.',
+      }
+    }
+
     // Tasa vigente definida por el administrador
     const { data: yieldSetting } = await admin
       .from('system_settings')
@@ -137,6 +170,7 @@ export async function createSelfServiceInvestment(input: {
       .from('contracts')
       .insert({
         client_id: user.id,
+        kind: 'inversion',
         initial_capital: capital,
         current_capital: capital,
         currency,

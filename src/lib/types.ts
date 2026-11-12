@@ -69,10 +69,18 @@ export type ContractStatus =
 
 export type Currency = 'ARS' | 'USD'
 
+/**
+ * Un contrato puede respaldar una inversión (el cliente aporta capital) o un
+ * crédito (el cliente recibe capital). Sin este discriminador los créditos se
+ * mostraban en el portal del inversor como si fueran inversiones propias.
+ */
+export type ContractKind = 'inversion' | 'credito'
+
 export interface Contract {
   id: string
   client_id: string
   asset_id: string | null
+  kind: ContractKind
   initial_capital: number
   current_capital: number | null
   currency: Currency
@@ -85,6 +93,10 @@ export interface Contract {
   signer_ip: string | null
   contract_hash: string | null
   contract_pdf_url: string | null
+  contract_pdf_path: string | null
+  signature_image_hash?: string | null
+  signed_user_agent?: string | null
+  /** @deprecated Columna del schema original que nunca se escribió. Usar `contract_pdf_path`. */
   contract_url: string | null
   template_id: string | null
   withdrawal_requested_at: string | null
@@ -206,6 +218,58 @@ export interface Guarantor {
   email: string | null
   relationship: string | null
   created_at: string
+}
+
+// ──────────────────────────────────────────
+// LIBRO MAYOR DE MOVIMIENTOS
+// ──────────────────────────────────────────
+export type LedgerDirection = 'in' | 'out'
+
+export type LedgerConcept =
+  | 'aporte_inversion'
+  | 'retiro_inversion'
+  | 'desembolso_credito'
+  | 'cobro_cuota'
+  | 'cobro_mora'
+  | 'cancelacion_credito'
+  | 'ajuste'
+
+export interface LedgerEntry {
+  id: string
+  entry_date: string
+  direction: LedgerDirection
+  concept: LedgerConcept
+  amount: number
+  currency: Currency
+  client_id: string | null
+  contract_id: string | null
+  credit_id: string | null
+  installment_id: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  // Joined
+  profiles?: Pick<Profile, 'full_name'> | null
+}
+
+export const LEDGER_CONCEPT_LABELS: Record<LedgerConcept, string> = {
+  aporte_inversion: 'Aporte de inversión',
+  retiro_inversion: 'Retiro de inversión',
+  desembolso_credito: 'Desembolso de crédito',
+  cobro_cuota: 'Cobro de cuota',
+  cobro_mora: 'Cobro de mora',
+  cancelacion_credito: 'Cancelación de crédito',
+  ajuste: 'Ajuste',
+}
+
+// ──────────────────────────────────────────
+// RESUMEN DE CLIENTES (vista clients_overview)
+// ──────────────────────────────────────────
+export interface ClientOverview extends Profile {
+  contracts_count: number
+  credits_count: number
+  active_capital_ars: number
+  active_capital_usd: number
 }
 
 // ──────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 import { createClient as createBrowserlessClient } from '@supabase/supabase-js'
 import { requireStaff, getServiceClient, AuthorizationError } from '@/lib/auth-guard'
+import { checkPassword } from '@/lib/password'
 
 /**
  * Actualiza los datos de la propia cuenta (admin o vendedor).
@@ -70,8 +71,10 @@ export async function changeMyPassword(currentPassword: string, newPassword: str
   try {
     const { userId } = await requireStaff()
 
-    if (!newPassword || newPassword.length < 10) {
-      return { error: 'La contraseña nueva debe tener al menos 10 caracteres.' }
+    // Política compartida: una cuenta del panel exige el mínimo reforzado
+    const passwordCheck = checkPassword(newPassword, true)
+    if (!passwordCheck.valid) {
+      return { error: passwordCheck.error ?? 'La contraseña no cumple los requisitos.' }
     }
     if (currentPassword === newPassword) {
       return { error: 'La contraseña nueva debe ser distinta de la actual.' }

@@ -93,7 +93,7 @@ export function generateSchedule(params: ScheduleParams): ScheduleInstallment[] 
 
   if (creditType === 'decreciente') {
     const principalPerInstallment = total / installments
-    return Array.from({ length: installments }, (_, i) => {
+    const schedule = Array.from({ length: installments }, (_, i) => {
       const outstanding = total - principalPerInstallment * i
       const interest = round2(outstanding * (rate / 100))
       const principal = round2(principalPerInstallment)
@@ -106,6 +106,18 @@ export function generateSchedule(params: ScheduleParams): ScheduleInstallment[] 
         is_interest_only: false,
       }
     })
+
+    // La última cuota absorbe el redondeo para que el capital amortizado
+    // sume exactamente lo prestado (antes podía quedar un resto de centavos)
+    const principalSum = round2(schedule.reduce((s, i) => s + i.principal_amount, 0))
+    const diff = round2(total - principalSum)
+    if (diff !== 0 && schedule.length > 0) {
+      const last = schedule[schedule.length - 1]
+      last.principal_amount = round2(last.principal_amount + diff)
+      last.amount = round2(last.principal_amount + last.interest_amount)
+    }
+
+    return schedule
   }
 
   // 'fija' — cuotas iguales, interés total sobre el capital

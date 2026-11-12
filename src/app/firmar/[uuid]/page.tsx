@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { getContractForSigning, submitSignedContract, getSignedPdfUrlByToken } from '../actions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,8 +26,8 @@ import {
   fillContractTemplate,
   formatCurrency,
   formatDate,
-  numberToWords,
-  generateSHA256,
+  formatDateLong,
+  amountInWords,
 } from '@/lib/helpers'
 import type { Contract, Profile, ContractTemplate } from '@/lib/types'
 import jsPDF from 'jspdf'
@@ -38,7 +38,7 @@ import SignatureCanvas from 'react-signature-canvas'
 const DEFAULT_HTML_TEMPLATE = `
 <div class="contract-preview p-6 text-slate-300 font-sans leading-relaxed space-y-6">
   <div class="text-center border-b border-slate-800 pb-6">
-    <h1 class="text-xl font-bold tracking-wider text-emerald-400">CONTRATO DE INVERSIÓN DIGITAL</h1>
+    <h1 class="text-xl font-bold tracking-wider text-blue-400">CONTRATO DE INVERSIÓN DIGITAL</h1>
     <p class="text-xs text-slate-500 mt-1">RENDIMAX · Plataforma de Inversiones</p>
   </div>
   
@@ -46,7 +46,7 @@ const DEFAULT_HTML_TEMPLATE = `
     <p><strong>Fecha del Contrato:</strong> {{fecha_contrato}}</p>
     
     <h2 class="text-base font-bold text-slate-200 mt-6 border-b border-slate-800/50 pb-2">1. LAS PARTES</h2>
-    <p>Por un lado, el <strong>INVERSOR</strong>, Sr./Sra. <strong>{{nombre_cliente}}</strong>, DNI <strong>{{dni_cliente}}</strong>, con domicilio en <strong>{{domicilio_cliente}}</strong>.</p>
+    <p>Por un lado, el <strong>INVERSOR</strong>, Sr./Sra. <strong>{{nombre_cliente}}</strong>, CUIT <strong>{{dni_cliente}}</strong>, con domicilio en <strong>{{domicilio_cliente}}</strong>.</p>
     <p>Y por el otro, la <strong>FINANCIERA</strong>, <strong>RENDIMAX</strong>, con domicilio legal en CABA, Argentina.</p>
     
     <h2 class="text-base font-bold text-slate-200 mt-6 border-b border-slate-800/50 pb-2">2. OBJETO DE LA INVERSIÓN</h2>
@@ -63,7 +63,7 @@ const DEFAULT_HTML_TEMPLATE = `
     <div class="border-t border-slate-800 pt-6 mt-8 space-y-2 text-xs text-slate-500 bg-slate-950/30 p-4 rounded-xl">
       <p>🛡️ <strong>Información de Seguridad y Firma Electrónica:</strong></p>
       <ul class="list-disc pl-5 space-y-1">
-        <li><strong>Firmante:</strong> {{nombre_cliente}} (DNI: {{dni_cliente}})</li>
+        <li><strong>Firmante:</strong> {{nombre_cliente}} (CUIT: {{dni_cliente}})</li>
         <li><strong>Fecha de firma:</strong> {{fecha_firma}} a las {{hora_firma}}</li>
         <li><strong>Dirección IP:</strong> {{ip_firma}}</li>
       </ul>
@@ -72,10 +72,20 @@ const DEFAULT_HTML_TEMPLATE = `
 </div>
 `
 
+/** Convierte el PDF a base64 para mandarlo a la server action. */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const CHUNK = 0x8000 // por tramos: un spread de todo el array desborda la pila
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
 export default function PublicSigningPage() {
   const params = useParams()
   const uuid = params.uuid as string
-  const supabase = createClient()
 
   // States
   const [contract, setContract] = useState<(Contract & { profiles: Profile }) | null>(null)
@@ -83,7 +93,15 @@ export default function PublicSigningPage() {
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
-  const [ip, setIp] = useState('Obteniendo IP...')
+  /**
+   * IP que el servidor va a registrar, leída de los headers del request.
+   * Antes se pedía a api.ipify.org desde el navegador y se mandaba como
+   * parámetro: cualquiera podía falsearla, así que el registro no probaba nada.
+   */
+  const [ip, setIp] = useState('—')
+  const [signError, setSignError] = useState<string | null>(null)
+  /** Firma ya dibujada, para incrustarla en el documento antes de rasterizarlo. */
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null)
 
   // Verification checkboxes
   const [checkRead, setCheckRead] = useState(false)
@@ -104,19 +122,8 @@ export default function PublicSigningPage() {
   const sigCanvasRef = useRef<any>(null)
   const contractPrintRef = useRef<HTMLDivElement>(null)
 
-  // Initialize mounting and fetch client IP
   useEffect(() => {
     setMounted(true)
-    const getIp = async () => {
-      try {
-        const res = await fetch('https://api.ipify.org?format=json')
-        const data = await res.json()
-        setIp(data.ip)
-      } catch (err) {
-        setIp('IP indeterminada')
-      }
-    }
-    getIp()
   }, [])
 
   // Fetch contract and template
@@ -128,23 +135,26 @@ export default function PublicSigningPage() {
         setLoading(true)
         setErrorMsg(null)
 
-        // El contrato, el firmante, la plantilla y los datos bancarios se resuelven
-        // en una única función del servidor acotada a este token de firma.
-        const { data, error } = await supabase.rpc('get_contract_for_signing', { p_token: uuid })
+        // Todo se resuelve en una server action acotada a este token: el
+        // contrato, el firmante, la plantilla, los datos bancarios y la IP.
+        const { data, error } = await getContractForSigning(uuid)
 
-        if (error || !data?.contract) {
-          setErrorMsg('El enlace de firma no es válido o ha expirado. Comprobá el link e intentá nuevamente.')
+        if (error || !data) {
+          setErrorMsg(error ?? 'El enlace de firma no es válido o ha expirado.')
           setLoading(false)
           return
         }
 
         setContract({ ...data.contract, profiles: data.profile } as Contract & { profiles: Profile })
+        setIp(data.signerIp)
 
-        if (data.template) {
-          setTemplate(data.template as ContractTemplate)
-        }
-        if (data.bank_details) {
-          setBankDetails(data.bank_details as any)
+        if (data.template) setTemplate(data.template as ContractTemplate)
+        if (data.bankDetails) setBankDetails(data.bankDetails as any)
+
+        // Si ya estaba firmado, se pide el enlace de descarga del PDF
+        if (data.contract.contract_signed_at) {
+          const { url } = await getSignedPdfUrlByToken(uuid)
+          if (url) setSignedPdfUrl(url)
         }
       } catch (err: any) {
         console.error('Error fetching contract:', err)
@@ -155,7 +165,7 @@ export default function PublicSigningPage() {
     }
 
     fetchContract()
-  }, [uuid, supabase])
+  }, [uuid])
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -174,47 +184,31 @@ export default function PublicSigningPage() {
   // Handle signature submit
   const handleSign = async () => {
     if (!contract || !mounted) return
-    if (sigCanvasRef.current.isEmpty()) {
-      alert('Por favor, dibuje su firma en el recuadro antes de continuar.')
+    if (!sigCanvasRef.current || sigCanvasRef.current.isEmpty()) {
+      setSignError('Dibujá tu firma en el recuadro antes de continuar.')
       return
     }
 
     setSigning(true)
+    setSignError(null)
 
     try {
-      // 1. Fill template HTML with variables
-      const rawHtml = template?.content || DEFAULT_HTML_TEMPLATE
-      const today = new Date()
-      const variables = {
-        fecha_contrato: formatDate(contract.created_at),
-        nombre_cliente: contract.profiles?.full_name || '',
-        dni_cliente: contract.profiles?.cuit || '',
-        domicilio_cliente: contract.profiles?.address || 'No registrado',
-        moneda: contract.currency === 'ARS' ? '$ ARS' : '$ USD',
-        monto_inicial: formatCurrency(contract.initial_capital, contract.currency),
-        monto_letras: numberToWords(contract.initial_capital) + ' ' + (contract.currency === 'ARS' ? 'pesos' : 'dólares'),
-        tasa_mensual: contract.monthly_rate.toString(),
-        fecha_inicio: formatDate(contract.start_date),
-        fecha_firma: formatDate(today.toISOString()),
-        hora_firma: today.toLocaleTimeString('es-AR'),
-        ip_firma: ip,
-      }
-
-      const filledHtml = fillContractTemplate(rawHtml, variables, template?.name || 'Contrato')
-      const documentHash = await generateSHA256(filledHtml)
-      setHash(documentHash)
-
-      // 2. Add signature image to the document preview dynamically for PDF generation
       const signatureImgData = sigCanvasRef.current.getTrimmedCanvas().toDataURL('image/png')
-      
-      // Update DOM temporarily to render signature
+
+      // La firma se inserta en el documento ANTES de rasterizarlo, para que
+      // quede dentro del PDF y no sólo en una hoja suelta al final.
+      setSignatureDataUrl(signatureImgData)
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      )
+
       const printContainer = contractPrintRef.current
       if (!printContainer) throw new Error('Contenedor de impresión no encontrado')
 
-      // 3. Generate PDF using html2canvas-pro & jsPDF
+      // Generate PDF using html2canvas-pro & jsPDF
       const canvas = await html2canvas(printContainer, {
         scale: 2,
-        backgroundColor: '#0f172a',
+        backgroundColor: '#ffffff',
         useCORS: true,
         logging: false,
       })
@@ -222,7 +216,7 @@ export default function PublicSigningPage() {
       if (!canvas || canvas.width === 0 || canvas.height === 0) {
         throw new Error('El canvas de impresión tiene dimensiones inválidas o vacías.')
       }
-      
+
       const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF('p', 'mm', 'a4')
       const imgWidth = 210
@@ -231,12 +225,11 @@ export default function PublicSigningPage() {
       let heightLeft = imgHeight
       let position = 0
 
-      // Add main document print
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
       heightLeft -= pageHeight
 
       let pageCount = 1
-      while (heightLeft > 0 && pageCount < 20) {
+      while (heightLeft > 0 && pageCount < 30) {
         position = heightLeft - imgHeight
         pdf.addPage()
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
@@ -244,64 +237,60 @@ export default function PublicSigningPage() {
         pageCount++
       }
 
-      // Add signature block at the end if not already visible
+      const today = new Date()
+
+      // Constancia de firma. El hash definitivo lo calcula el servidor sobre
+      // los bytes de este PDF, así que acá sólo van los datos del acto.
       pdf.addPage()
       pdf.setFontSize(14)
-      pdf.setTextColor(16, 185, 129) // emerald-500
-      pdf.text('FIRMA ELECTRÓNICA REGISTRADA', 20, 30)
+      pdf.setTextColor(29, 78, 216) // blue-700
+      pdf.text('CONSTANCIA DE FIRMA ELECTRÓNICA', 20, 30)
       pdf.setFontSize(10)
-      pdf.setTextColor(156, 163, 175) // gray-400
+      pdf.setTextColor(71, 85, 105) // slate-600
       pdf.text(`Firmante: ${contract.profiles?.full_name || 'Nombre no registrado'}`, 20, 45)
       pdf.text(`CUIT: ${contract.profiles?.cuit || 'CUIT no registrado'}`, 20, 52)
-      pdf.text(`Fecha y Hora: ${formatDate(today.toISOString())} - ${today.toLocaleTimeString('es-AR')}`, 20, 59)
-      pdf.text(`Dirección IP: ${ip}`, 20, 66)
-      pdf.text(`Hash de Integridad (SHA-256): ${documentHash}`, 20, 73)
-      
-      // Draw signature image
-      pdf.text('Firma digital autógrafa:', 20, 85)
-      pdf.addImage(signatureImgData, 'PNG', 20, 90, 80, 40)
+      pdf.text(
+        `Fecha y hora: ${formatDate(today.toISOString())} - ${today.toLocaleTimeString('es-AR')}`,
+        20, 59
+      )
+      pdf.text(`Dirección IP registrada por el servidor: ${ip}`, 20, 66)
+      pdf.text('Firma autógrafa digitalizada:', 20, 78)
+      pdf.addImage(signatureImgData, 'PNG', 20, 83, 80, 40)
+      pdf.setFontSize(8)
+      pdf.text(
+        'El hash SHA-256 de integridad de este documento queda asentado en el registro de',
+        20, 135
+      )
+      pdf.text('auditoría de RENDIMAX al momento de su emisión (Ley 25.506).', 20, 140)
 
-      const pdfBlob = pdf.output('blob')
-      const fileName = `${contract.id}_signed.pdf`
+      // El PDF viaja al servidor: ahí se hashea y se guarda en un bucket privado
+      const pdfArrayBuffer = pdf.output('arraybuffer')
+      const pdfBase64 = arrayBufferToBase64(pdfArrayBuffer)
 
-      // 4. Upload PDF to Storage
-      const { error: uploadErr } = await supabase.storage
-        .from('contracts')
-        .upload(fileName, pdfBlob, {
-          contentType: 'application/pdf',
-          upsert: true,
-        })
-
-      if (uploadErr) {
-        console.error('Storage Upload Error:', uploadErr)
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('contracts')
-        .getPublicUrl(fileName)
-
-      setSignedPdfUrl(publicUrl)
-
-      // 5. Registrar la firma: cambio de estado, alta del activo en consignación
-      // y evento de auditoría se resuelven en una sola operación del servidor.
-      const { data: signResult, error: signErr } = await supabase.rpc('sign_contract', {
-        p_token: uuid,
-        p_ip: ip,
-        p_hash: documentHash,
-        p_pdf_url: publicUrl,
-        p_user_agent: navigator.userAgent,
+      const result = await submitSignedContract({
+        token: uuid,
+        pdfBase64,
+        signatureBase64: signatureImgData.split(',')[1] ?? '',
+        userAgent: navigator.userAgent,
       })
 
-      if (signErr) throw signErr
-      if (signResult?.error && !signResult?.already_signed) {
-        throw new Error(signResult.error)
+      if (result.error) {
+        if (result.alreadySigned) {
+          setSignSuccess(true)
+          return
+        }
+        setSignError(result.error)
+        return
       }
 
+      if (result.hash) setHash(result.hash)
+      if (result.pdfUrl) setSignedPdfUrl(result.pdfUrl)
       setSignSuccess(true)
     } catch (err: any) {
       console.error('Signing process error:', err)
-      alert('Hubo un error al registrar la firma digital. Por favor, reintente en unos momentos.')
+      setSignError(
+        'Hubo un error al registrar la firma. Verificá tu conexión y reintentá en unos momentos.'
+      )
     } finally {
       setSigning(false)
     }
@@ -311,7 +300,7 @@ export default function PublicSigningPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 p-4">
-        <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mb-4" />
+        <Loader2 className="w-12 h-12 text-blue-400 animate-spin mb-4" />
         <p className="text-slate-400 text-sm font-medium">Cargando contrato...</p>
       </div>
     )
@@ -337,7 +326,9 @@ export default function PublicSigningPage() {
   const isAlreadySigned = contract.status !== 'enviado' && contract.status !== 'borrador'
 
   if (signSuccess || isAlreadySigned) {
-    const finalPdfUrl = signedPdfUrl || contract.contract_pdf_url
+    // El bucket es privado: la URL sale firmada de la server action y dura una
+    // hora. `contract_pdf_url` quedó sólo como registro histórico.
+    const finalPdfUrl = signedPdfUrl
 
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
@@ -399,19 +390,23 @@ export default function PublicSigningPage() {
     )
   }
 
-  // Variables structure to feed local template
+  // Variables que alimentan la plantilla, tanto en la vista previa como en el PDF
   const today = new Date()
   const displayVariables = {
-    fecha_contrato: formatDate(contract.created_at),
+    fecha_contrato: formatDateLong(contract.created_at),
     nombre_cliente: contract.profiles?.full_name || '',
     dni_cliente: contract.profiles?.cuit || '',
+    cuit_cliente: contract.profiles?.cuit || '',
     domicilio_cliente: contract.profiles?.address || 'No registrado',
-    moneda: contract.currency === 'ARS' ? '$ ARS' : '$ USD',
+    moneda: contract.currency === 'ARS' ? '$ ARS' : 'US$',
     monto_inicial: formatCurrency(contract.initial_capital, contract.currency),
-    monto_letras: numberToWords(contract.initial_capital) + ' ' + (contract.currency === 'ARS' ? 'pesos' : 'dólares'),
+    // amountInWords soporta millones: numberToWords devolvía dígitos a partir
+    // de 1.000.000, así que casi ningún contrato en pesos tenía monto en letras
+    monto_letras: amountInWords(contract.initial_capital, contract.currency),
     tasa_mensual: contract.monthly_rate.toString(),
-    fecha_inicio: formatDate(contract.start_date),
-    fecha_firma: formatDate(today.toISOString()),
+    fecha_inicio: formatDateLong(contract.start_date),
+    fecha_vencimiento: formatDateLong(contract.end_date),
+    fecha_firma: formatDateLong(today.toISOString()),
     hora_firma: today.toLocaleTimeString('es-AR'),
     ip_firma: ip,
   }
@@ -425,16 +420,16 @@ export default function PublicSigningPage() {
         {/* Logo / Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-900">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
               <ShieldCheck className="w-4.5 h-4.5 text-slate-950" />
             </div>
             <div>
               <span className="font-bold tracking-wide text-white text-sm">RENDIMAX Digital</span>
-              <span className="text-[10px] text-emerald-400 block -mt-1">Acuerdos Certificados</span>
+              <span className="text-[10px] text-blue-400 block -mt-1">Acuerdos Certificados</span>
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <Lock className="w-3.5 h-3.5 text-emerald-400/80" />
+            <Lock className="w-3.5 h-3.5 text-blue-400/80" />
             <span>Encriptación SSL SHA-256</span>
           </div>
         </div>
@@ -457,7 +452,7 @@ export default function PublicSigningPage() {
           {/* Header */}
           <div className="bg-slate-900/90 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-emerald-400" />
+              <FileText className="w-4 h-4 text-blue-400" />
               <span className="text-xs font-semibold text-slate-300">DOCUMENTO DE CONTRATO</span>
             </div>
             <Badge variant="outline" className="text-[10px] uppercase border-blue-500/30 text-blue-400">
@@ -467,13 +462,34 @@ export default function PublicSigningPage() {
 
           {/* Document Content scrollable */}
           <div className="max-h-[420px] overflow-y-auto bg-slate-950/40 divide-y divide-slate-900">
-            {/* The printable segment */}
             <div
-              ref={contractPrintRef}
-              id="contract-content-to-print"
               className="p-8 text-slate-300 font-sans leading-relaxed text-sm bg-slate-950"
               dangerouslySetInnerHTML={{ __html: filledContractHtml }}
             />
+          </div>
+        </div>
+
+        {/*
+          Hoja de impresión fuera de pantalla.
+          El PDF se generaba a partir de la vista previa oscura, así que salía un
+          contrato negro, ilegible al imprimirlo y carísimo en tinta. Esta hoja
+          replica el contenido con fondo blanco y texto oscuro, en ancho A4.
+        */}
+        <div aria-hidden className="fixed -left-[9999px] top-0 pointer-events-none" >
+          <div ref={contractPrintRef} className="contract-print-sheet">
+            <div dangerouslySetInnerHTML={{ __html: filledContractHtml }} />
+
+            {signatureDataUrl && (
+              <div className="contract-print-signature">
+                <p className="contract-print-signature-label">Firma autógrafa digitalizada</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={signatureDataUrl} alt="Firma del cliente" width={260} />
+                <p className="contract-print-signature-name">
+                  {contract.profiles?.full_name || ''}
+                  {contract.profiles?.cuit ? ` — CUIT ${contract.profiles.cuit}` : ''}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -486,7 +502,7 @@ export default function PublicSigningPage() {
                 id="check-read"
                 checked={checkRead}
                 onChange={(e) => setCheckRead(e.target.checked)}
-                className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
+                className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-700 bg-slate-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
               />
               <label
                 htmlFor="check-read"
@@ -502,7 +518,7 @@ export default function PublicSigningPage() {
                 id="check-legal"
                 checked={checkLegal}
                 onChange={(e) => setCheckLegal(e.target.checked)}
-                className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
+                className="mt-0.5 w-5 h-5 shrink-0 rounded border-slate-700 bg-slate-900 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-950 focus:ring-2 cursor-pointer"
               />
               <label
                 htmlFor="check-legal"
@@ -532,13 +548,13 @@ export default function PublicSigningPage() {
 
         {/* Bank Transfer Details — only when both boxes are confirmed */}
         {checkRead && checkLegal && bankDetails && (
-          <Card className="border border-emerald-500/40 bg-gradient-to-br from-emerald-950/60 to-slate-950/60 animate-fade-in">
+          <Card className="border border-blue-500/40 bg-gradient-to-br from-blue-950/60 to-slate-950/60 animate-fade-in">
             <CardHeader className="pb-3 pt-4 px-5">
-              <CardTitle className="text-sm flex items-center gap-2 text-emerald-300">
+              <CardTitle className="text-sm flex items-center gap-2 text-blue-300">
                 <Building2 className="w-4 h-4" />
                 Datos para Realizar la Transferencia
               </CardTitle>
-              <p className="text-[11px] text-emerald-400/70 mt-0.5">
+              <p className="text-[11px] text-blue-400/70 mt-0.5">
                 Una vez firmado el contrato, transferí el capital acordado a la siguiente cuenta bancaria.
               </p>
             </CardHeader>
@@ -550,22 +566,22 @@ export default function PublicSigningPage() {
                 { label: 'CBU / CVU', value: bankDetails.cbu, field: 'cbu', mono: true },
                 { label: 'Alias', value: bankDetails.alias, field: 'alias', mono: true },
               ] as { label: string; value: string; field: string; mono: boolean }[]).map(({ label, value, field, mono }) => (
-                <div key={field} className="flex items-center justify-between gap-3 py-2 border-b border-emerald-900/40 last:border-0">
+                <div key={field} className="flex items-center justify-between gap-3 py-2 border-b border-blue-900/40 last:border-0">
                   <div>
-                    <span className="text-[10px] text-emerald-400/60 uppercase tracking-wider block">{label}</span>
+                    <span className="text-[10px] text-blue-400/60 uppercase tracking-wider block">{label}</span>
                     <span className={`text-sm font-semibold text-slate-200 ${mono ? 'font-mono' : ''}`}>{value}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => copyToClipboard(value, field)}
-                    className="p-1.5 rounded-lg bg-emerald-900/30 border border-emerald-700/30 text-emerald-400 hover:bg-emerald-800/40 transition-colors shrink-0"
+                    className="p-1.5 rounded-lg bg-blue-900/30 border border-blue-700/30 text-blue-400 hover:bg-blue-800/40 transition-colors shrink-0"
                     title={`Copiar ${label}`}
                   >
                     {copiedField === field ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               ))}
-              <p className="text-[10px] text-emerald-400/50 pt-2">
+              <p className="text-[10px] text-blue-400/50 pt-2">
                 ⚠️ Importante: El contrato se activará una vez que el administrador confirme la recepción de los fondos.
               </p>
             </CardContent>
@@ -594,7 +610,9 @@ export default function PublicSigningPage() {
                     className: 'w-full h-40 cursor-crosshair',
                   }}
                   backgroundColor="rgba(15, 23, 42, 0.4)"
-                  penColor="#10b981"
+                  // Tinta oscura: la firma termina sobre la hoja blanca del PDF,
+                  // donde el verde del tema apenas se distinguía
+                  penColor="#1d4ed8"
                 />
               )}
               {/* Reset indicator */}
@@ -608,12 +626,25 @@ export default function PublicSigningPage() {
               </button>
             </div>
 
+            {signError && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex gap-2 items-start animate-fade-in">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{signError}</span>
+              </div>
+            )}
+
+            {(!checkRead || !checkLegal) && (
+              <p className="text-[11px] text-muted-foreground">
+                Tildá las dos casillas de conformidad para habilitar la firma.
+              </p>
+            )}
+
             {/* Submit Block */}
             <div className="pt-2">
               <Button
                 onClick={handleSign}
                 disabled={signing || !checkRead || !checkLegal}
-                className="w-full h-12 bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-bold hover:from-emerald-400 hover:to-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all rounded-xl gap-2 shadow-lg shadow-emerald-500/10"
+                className="w-full h-12 bg-gradient-to-r from-blue-500 to-blue-600 text-slate-950 font-bold hover:from-blue-400 hover:to-blue-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all rounded-xl gap-2 shadow-lg shadow-blue-500/10"
               >
                 {signing ? (
                   <>

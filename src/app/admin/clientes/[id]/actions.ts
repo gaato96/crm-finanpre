@@ -1,6 +1,7 @@
 'use server'
 
 import { requireAdmin, getServiceClient, AuthorizationError } from '@/lib/auth-guard'
+import { checkPassword } from '@/lib/password'
 
 /**
  * Restablece la contraseña de un cliente.
@@ -12,8 +13,9 @@ export async function adminResetPassword(userId: string, newPassword: string) {
     await requireAdmin()
 
     if (!userId) return { error: 'Falta el usuario a modificar.' }
-    if (!newPassword || newPassword.length < 8) {
-      return { error: 'La contraseña debe tener al menos 8 caracteres.' }
+    const passwordCheck = checkPassword(newPassword)
+    if (!passwordCheck.valid) {
+      return { error: passwordCheck.error ?? 'La contraseña no cumple los requisitos.' }
     }
 
     const supabase = getServiceClient()

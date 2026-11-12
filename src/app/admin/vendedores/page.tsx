@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PasswordField } from '@/components/PasswordField'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -205,19 +206,15 @@ export default function VendedoresPage() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="password">Contraseña Temporal</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  minLength={6}
-                  placeholder="Mínimo 6 caracteres"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="bg-input/50"
-                />
-              </div>
+              {/* Da acceso al panel: se exige el mínimo reforzado */}
+              <PasswordField
+                label="Contraseña Temporal"
+                value={password}
+                onChange={setPassword}
+                showStrength
+                isStaff
+                className="bg-input/50"
+              />
 
               {error && (
                 <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">

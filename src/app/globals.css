@@ -254,3 +254,70 @@
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
   animation: shimmer 3s ease-in-out infinite;
 }
+/* ──────────────────────────────────────────────────────────────
+   HOJA DE IMPRESIÓN DEL CONTRATO
+
+   El PDF firmado se generaba rasterizando la vista previa oscura del portal:
+   salía un documento negro, prácticamente ilegible al imprimirlo. Esta hoja
+   vive fuera de pantalla, con ancho A4 y colores de documento, y es la que
+   html2canvas convierte en PDF.
+   ────────────────────────────────────────────────────────────── */
+.contract-print-sheet {
+  width: 794px; /* A4 a 96 dpi */
+  background: #ffffff;
+  color: #1e293b;
+  padding: 56px 64px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* Las plantillas vienen con clases de tema oscuro (text-slate-300, bg-slate-950,
+   border-slate-800): se neutralizan para que el documento sea imprimible. */
+.contract-print-sheet *,
+.contract-print-sheet *::before,
+.contract-print-sheet *::after {
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+  background-color: transparent !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+.contract-print-sheet h1,
+.contract-print-sheet h2,
+.contract-print-sheet h3,
+.contract-print-sheet strong,
+.contract-print-sheet b {
+  color: #0f172a !important;
+}
+
+.contract-print-sheet h1 { font-size: 20px; letter-spacing: 0.04em; }
+.contract-print-sheet h2 { font-size: 15px; margin-top: 22px; }
+.contract-print-sheet h3 { font-size: 14px; }
+.contract-print-sheet p { margin: 8px 0; }
+.contract-print-sheet ul { margin: 8px 0; padding-left: 20px; list-style: disc; }
+.contract-print-sheet img { background: transparent !important; }
+
+.contract-print-signature {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid #cbd5e1;
+}
+
+.contract-print-signature-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #64748b !important;
+  margin-bottom: 6px;
+}
+
+.contract-print-signature-name {
+  font-size: 11px;
+  color: #475569 !important;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #94a3b8;
+  display: inline-block;
+}

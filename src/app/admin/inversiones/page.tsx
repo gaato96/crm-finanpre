@@ -13,6 +13,8 @@ import {
   numberToWords,
   formatWhatsAppUrl,
   adjustToNextBusinessDay,
+  parseDbDate,
+  amountInWords,
 } from '@/lib/helpers'
 import type { Contract, Profile, ContractTemplate } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -112,6 +114,10 @@ export default function InversionesPage() {
   const [withdrawalSuccess, setWithdrawalSuccess] = useState<string | null>(null)
   const [signingDialogContract, setSigningDialogContract] = useState<ContractWithProfile | null>(null)
   const [copiedSigningLink, setCopiedSigningLink] = useState(false)
+  /** Error de la última acción sobre un contrato, para no usar alert(). */
+  const [actionError, setActionError] = useState<string | null>(null)
+  /** Momento de carga: evita leer el reloj durante el render. */
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
 
   // ── dolar blue & BCRA rate ────────────────────────────────────────────────
   const [dolarBlue, setDolarBlue] = useState<number | null>(null)
@@ -133,8 +139,11 @@ export default function InversionesPage() {
     const { data } = await supabase
       .from('contracts')
       .select('*, profiles(full_name, cuit, id, phone), assets_valuation(description, asset_type)')
+      // Los créditos generan su propia fila en `contracts`: acá sólo inversiones
+      .eq('kind', 'inversion')
       .order('created_at', { ascending: false })
     setContracts((data || []) as ContractWithProfile[])
+    setLoadedAt(Date.now())
     setLoadingContracts(false)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -245,9 +254,11 @@ export default function InversionesPage() {
   })
 
   const pendingWithdrawals = contracts.filter((c) => c.status === 'retiro_solicitado')
-  const overdueConsignments = contracts.filter(
-    (c) => c.status === 'en_consignacion' && new Date(c.start_date) <= new Date()
-  )
+  const overdueConsignments = contracts.filter((c) => {
+    if (c.status !== 'en_consignacion') return false
+    const fin = c.consignacion_fin ?? c.start_date
+    return parseDbDate(fin).getTime() <= loadedAt
+  })
 
   // ─────────────────────────────────────────────────────────────────────────
   // Handlers
@@ -258,6 +269,7 @@ export default function InversionesPage() {
 
     const insertData: any = {
       client_id: selectedClientId,
+      kind: 'inversion',
       asset_id: selectedAssetId || null,
       initial_capital: capitalNum,
       current_capital: capitalNum,
@@ -302,6 +314,7 @@ export default function InversionesPage() {
     if (!contractData) {
       const insertData: any = {
         client_id: selectedClientId,
+        kind: 'inversion',
         asset_id: selectedAssetId || null,
         initial_capital: capitalNum,
         current_capital: capitalNum,
@@ -358,91 +371,68 @@ export default function InversionesPage() {
     }
   }
 
+  /**
+   * Confirmación del retiro.
+   *
+   * Antes sólo cambiaba el estado a 'retirado': no quedaba registrado cuánto se
+   * pagó, así que la salida de dinero no se podía auditar. Ahora la RPC
+   * registra el monto devengado y deja el asiento en el libro mayor.
+   */
   async function handleConfirmWithdrawal(contractId: string) {
     setWithdrawalConfirming(contractId)
-    const { error } = await supabase
-      .from('contracts')
-      .update({
-        status: 'retirado',
-        withdrawal_confirmed_at: new Date().toISOString(),
-      })
-      .eq('id', contractId)
-    if (!error) {
+    setActionError(null)
+
+    const { data, error } = await supabase.rpc('confirm_withdrawal', {
+      p_contract_id: contractId,
+      p_amount: null,
+    })
+
+    if (error || data?.error) {
+      setActionError(error?.message ?? data.error)
+    } else {
       setWithdrawalSuccess(contractId)
       await fetchContracts()
     }
     setWithdrawalConfirming(null)
   }
 
+  /**
+   * Acreditación de fondos. La RPC activa el contrato, registra el evento y
+   * asienta el aporte; el alta del activo en consignación la resuelve el
+   * trigger de la base (antes esta pantalla duplicaba esa lógica a mano).
+   */
   async function handleConfirmPayment(contractId: string) {
     setWithdrawalConfirming(contractId) // reuse loading state
-    const { error } = await supabase
-      .from('contracts')
-      .update({ status: 'activo' })
-      .eq('id', contractId)
-    if (!error) {
-      // Register event
-      await supabase.from('contract_events').insert({
-        contract_id: contractId,
-        event_type: 'funds_confirmed',
-        metadata: { confirmed_at: new Date().toISOString() },
-      })
+    setActionError(null)
 
-      // Add asset to assets_available if contract has asset_id
-      const contractData = contracts.find(c => c.id === contractId)
-      if (contractData?.asset_id) {
-        const { data: assetVal } = await supabase
-          .from('assets_valuation')
-          .select('*')
-          .eq('id', contractData.asset_id)
-          .single()
+    const { data, error } = await supabase.rpc('confirm_contract_funds', {
+      p_contract_id: contractId,
+    })
 
-        if (assetVal) {
-          const { data: existingAvail } = await supabase
-            .from('assets_available')
-            .select('id')
-            .eq('asset_valuation_id', contractData.asset_id)
-            .maybeSingle()
-
-          if (!existingAvail) {
-            const capitalizedType = assetVal.asset_type.charAt(0).toUpperCase() + assetVal.asset_type.slice(1)
-            await supabase.from('assets_available').insert({
-              asset_valuation_id: contractData.asset_id,
-              title: `${capitalizedType} - ${assetVal.description}`,
-              description: `Recibido como forma de pago / inversión de ${contractData.profiles?.full_name || 'cliente'}.`,
-              asset_type: assetVal.asset_type,
-              listed_value: assetVal.market_value,
-              currency: assetVal.currency || 'USD',
-              status: 'disponible'
-            })
-          }
-        }
-      }
-
+    if (error || data?.error) {
+      setActionError(error?.message ?? data.error)
+    } else {
       setWithdrawalSuccess(contractId)
       await fetchContracts()
     }
     setWithdrawalConfirming(null)
   }
 
+  /**
+   * Cierre de la consignación. La versión anterior pisaba start_date y end_date
+   * con hoy/+30 y perdía el plazo pactado; la RPC conserva la duración original.
+   */
   async function handleActivateConsignment(contractId: string) {
     setWithdrawalConfirming(contractId)
-    const todayStr = todayISO()
-    const nextVenc = addDays(todayStr, 30)
-    const { error } = await supabase
-      .from('contracts')
-      .update({
-        status: 'activo',
-        start_date: todayStr,
-        end_date: nextVenc,
-      })
-      .eq('id', contractId)
-    if (!error) {
-      await supabase.from('contract_events').insert({
-        contract_id: contractId,
-        event_type: 'funds_confirmed',
-        metadata: { activated_at: new Date().toISOString() },
-      })
+    setActionError(null)
+
+    const { data, error } = await supabase.rpc('activate_consignment', {
+      p_contract_id: contractId,
+    })
+
+    if (error || data?.error) {
+      setActionError(error?.message ?? data.error)
+    } else {
       setWithdrawalSuccess(contractId)
       await fetchContracts()
     }
@@ -450,8 +440,25 @@ export default function InversionesPage() {
   }
 
   async function handleDeleteDraft(contractId: string) {
+    // Sólo borradores: la función se llamaba con cualquier id y nada impedía
+    // que borrara un contrato ya firmado.
+    const contract = contracts.find((c) => c.id === contractId)
+    if (!contract || contract.status !== 'borrador') {
+      setActionError('Sólo se pueden eliminar contratos en estado borrador.')
+      return
+    }
     if (!confirm('¿Seguro que querés eliminar este borrador?')) return
-    await supabase.from('contracts').delete().eq('id', contractId)
+
+    const { error } = await supabase
+      .from('contracts')
+      .delete()
+      .eq('id', contractId)
+      .eq('status', 'borrador')
+
+    if (error) {
+      setActionError('No se pudo eliminar el borrador: ' + error.message)
+      return
+    }
     await fetchContracts()
   }
 
@@ -465,6 +472,38 @@ export default function InversionesPage() {
   function openSigningDialog(contract: ContractWithProfile) {
     setSigningDialogContract(contract)
     setCopiedSigningLink(false)
+  }
+
+  /**
+   * "Enviar" un borrador.
+   *
+   * Antes este botón sólo abría el diálogo del enlace: el contrato seguía
+   * figurando como Borrador para siempre, aunque el cliente ya lo tuviera.
+   */
+  async function handleMarkAsSent(contract: ContractWithProfile) {
+    openSigningDialog(contract)
+    if (contract.status !== 'borrador') return
+
+    setActionError(null)
+    const { error } = await supabase
+      .from('contracts')
+      .update({ status: 'enviado' })
+      .eq('id', contract.id)
+      .eq('status', 'borrador')
+
+    if (error) {
+      setActionError('No se pudo marcar como enviado: ' + error.message)
+      return
+    }
+
+    await supabase.from('contract_events').insert({
+      contract_id: contract.id,
+      event_type: 'sent',
+      metadata: { sent_at: new Date().toISOString(), source: 'admin' },
+    })
+
+    await fetchContracts()
+    setSigningDialogContract({ ...contract, status: 'enviado' })
   }
 
   const signingLinkForContract = (contract: ContractWithProfile) =>
@@ -481,7 +520,7 @@ export default function InversionesPage() {
       domicilio_cliente: selectedClient ? (selectedClient.address || '—') : '—',
       moneda: currency === 'ARS' ? '$ ARS' : '$ USD',
       monto_inicial: formatCurrency(capitalNum, currency),
-      monto_letras: numberToWords(capitalNum),
+      monto_letras: amountInWords(capitalNum, currency),
       tasa_mensual: String(rateNum),
       fecha_inicio: formatDate(startDate),
       fecha_firma: 'Pendiente de firma',
@@ -512,6 +551,20 @@ export default function InversionesPage() {
           </span>
         </div>
       </div>
+
+      {/* Errores de acción: antes se perdían en la consola o salían por alert() */}
+      {actionError && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/30 animate-fade-in">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <p className="flex-1 text-sm text-red-300">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-red-400/60 hover:text-red-300 text-xs shrink-0"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
 
       {/* ── Pending Withdrawals Alert ─────────────────────────────────────── */}
       {pendingWithdrawals.length > 0 && (
@@ -1301,7 +1354,7 @@ export default function InversionesPage() {
                                     <>
                                       <Button
                                         size="sm"
-                                        onClick={() => openSigningDialog(contract)}
+                                        onClick={() => handleMarkAsSent(contract)}
                                         className="h-7 px-2.5 bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 text-xs gap-1"
                                       >
                                         <Send className="w-3 h-3" />

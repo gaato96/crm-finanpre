@@ -34,10 +34,34 @@ Los scripts de `supabase/` se ejecutan **en orden** desde el SQL Editor de Supab
 | 10 | `v11_migration.sql` | Teléfono y domicilio en el alta por registro |
 | 11 | `v12_migration.sql` | **Tipos de crédito, fecha de pago elegible, desglose capital/interés, índices** |
 | 12 | `v13_migration.sql` | Cierre de fugas públicas: RPC de firma, ajustes públicos y bloqueo de escritura del inversor |
-| 13 | `v14_migration.sql` | **Rol fijo en el registro público, freno a la escalada de privilegios, plantillas visibles al firmante y cierre de la subida anónima al bucket** |
+| 13 | `v14_migration.sql` | Rol fijo en el registro público, freno a la escalada de privilegios, plantillas visibles al firmante y cierre de la subida anónima al bucket |
+| 14 | `v15_migration.sql` | **Separación inversión/crédito (`contracts.kind`), libro mayor, tareas diarias, operaciones transaccionales, bucket privado y vista `clients_overview`** |
 
 > Cada migración debe ejecutarse **antes** de desplegar el código que la usa. `v14` es
 > especialmente importante: sin ella, cualquiera puede registrarse con rol de administrador.
+> `v15` agrega `contracts.kind`, de la que depende todo el portal del inversor.
+
+## Tareas programadas
+
+Sin esto la reinversión automática no ocurre, ningún contrato pasa a `vencido` y
+`credits.status` nunca llega a `moroso`.
+
+Elegí **una** de las dos opciones:
+
+1. **Vercel Cron** (ya configurado en `vercel.json`): cargá `CRON_SECRET` en las
+   variables de entorno del proyecto. Pega contra `/api/cron/daily-jobs` todos los
+   días a las 06:05 UTC (03:05 ART).
+2. **pg_cron dentro de Supabase**: habilitá la extensión y programá
+   `SELECT public.rendimax_run_daily_jobs();` — las instrucciones exactas están al
+   final de `supabase/v15_migration.sql`.
+
+Un administrador también puede forzar la corrida con un `POST` a esa misma ruta.
+
+## Libro mayor
+
+Cada acreditación de fondos, cobro de cuota, desembolso, cancelación y retiro deja
+un asiento en `ledger_entries`. Se consulta en `/admin/movimientos`, con filtros por
+período y concepto y exportación a CSV. Los totales se muestran separados por moneda.
 
 ## Modalidades de crédito
 
@@ -57,8 +81,21 @@ La lógica vive en [`src/lib/credit.ts`](src/lib/credit.ts) y es pura, sin depen
 | Rol | Acceso |
 |---|---|
 | `admin` | Todo `/admin` |
-| `vendedor` | `/admin`, `/admin/clientes`, `/admin/contratos`, `/admin/creditos` |
+| `vendedor` | `/admin`, `/admin/clientes`, `/admin/contratos`, `/admin/creditos`, `/admin/perfil` |
 | `investor` | `/portal` |
+
+## Inversiones y créditos
+
+Ambos generan una fila en `contracts`, distinguidas por `contracts.kind`:
+
+| `kind` | Qué representa | Dónde se ve |
+|---|---|---|
+| `inversion` | El cliente aporta capital y cobra interés | Portal del inversor, `/admin/inversiones` |
+| `credito` | El cliente recibe capital y lo devuelve en cuotas | `/admin/creditos` |
+
+Todas las consultas del portal filtran por `kind = 'inversion'`. Sin ese filtro un
+deudor veía su préstamo listado como inversión propia, con el ticker de interés
+compuesto corriendo a su favor.
 
 El rol se resuelve siempre contra la tabla `profiles` (nunca desde `user_metadata`, que el
 propio usuario puede modificar). La autorización real la aplica RLS en Supabase; `src/proxy.ts`
@@ -80,6 +117,19 @@ solo enruta.
 - La pantalla pública de firma usa las funciones `get_contract_for_signing` y `sign_contract`,
   acotadas al token; no hay políticas abiertas sobre `contracts` ni `profiles`.
 - El service worker (`public/sw.js`) nunca cachea respuestas de datos ni de otros orígenes.
+- **La firma electrónica se registra del lado del servidor.** La IP sale de los
+  headers del request (antes la mandaba el navegador desde `api.ipify.org`, y era
+  falsificable) y el hash SHA-256 se calcula sobre los bytes del PDF que quedan
+  almacenados, no sobre un HTML irreproducible.
+- El bucket `contracts` es **privado**: los PDF se sirven con URLs firmadas de una
+  hora, validando que quien las pide sea el titular del contrato o personal.
+- Un vendedor no puede borrar contratos, créditos ni cuotas: sus políticas pasaron
+  de `FOR ALL` a permisos acotados de lectura, alta y edición.
+- La política de contraseñas es única (`src/lib/password.ts`): 10 caracteres para
+  clientes, 12 para cuentas con acceso al panel, con mayúsculas, minúsculas y un
+  número. Antes el registro público pedía 6.
+- Las variables del contrato se escapan antes de insertarse en el HTML: el nombre
+  que el propio usuario elige al registrarse termina dentro del documento firmado.
 
 ## Despliegue
 

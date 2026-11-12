@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { StarRating } from '@/components/StarRating'
-import type { Profile, ClientType } from '@/lib/types'
+import type { Profile, ClientType, ClientOverview } from '@/lib/types'
 import { formatDate, formatWhatsAppUrl } from '@/lib/helpers'
 import {
   Search,
@@ -44,17 +44,22 @@ import {
   Trash2,
   MoreHorizontal,
   MessageCircle,
+  AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
-import { adminCreateClient } from './actions'
+import {
+  adminCreateClient,
+  adminUpdateClient,
+  adminDeleteClient,
+  getClientDeletionImpact,
+} from './actions'
+import { useAuth } from '@/context/auth-context'
+import { PasswordField } from '@/components/PasswordField'
 
 // ─────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────
-type ClientWithData = Profile & {
-  contracts_count: number
-  credits_count: number
-}
+type ClientWithData = ClientOverview
 
 type FilterType = 'todos' | 'investor' | 'borrower' | 'both'
 
@@ -148,38 +153,41 @@ export default function ClientesPage() {
   // Delete state
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteImpact, setDeleteImpact] = useState<{
+    contracts: number
+    credits: number
+    activeContracts: number
+    activeCredits: number
+  } | null>(null)
+
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+  const deleteClientName = clients.find((c) => c.id === deleteConfirmId)?.full_name ?? ''
 
   const fetchClients = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
 
-    const { data: profiles } = await supabase
-      .from('profiles')
+    // La vista `clients_overview` (v15) trae los totales ya agregados.
+    // Antes esto hacía 2 consultas POR CLIENTE: con 200 clientes eran 401
+    // requests en cada carga de la pantalla.
+    const { data, error } = await supabase
+      .from('clients_overview')
       .select('*')
       .eq('role', 'investor')
       .order('created_at', { ascending: false })
 
-    if (!profiles) {
+    if (error) {
+      console.error('Error cargando clientes:', error.message)
+      setLoadError('No se pudieron cargar los clientes. Reintentá en unos momentos.')
       setLoading(false)
       return
     }
 
-    // Fetch contract/credit counts in parallel
-    const enriched: ClientWithData[] = await Promise.all(
-      (profiles as Profile[]).map(async (p) => {
-        const [contractsRes, creditsRes] = await Promise.all([
-          supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('client_id', p.id),
-          supabase.from('credits').select('id', { count: 'exact', head: true }).eq('client_id', p.id),
-        ])
-        return {
-          ...p,
-          contracts_count: contractsRes.count ?? 0,
-          credits_count: creditsRes.count ?? 0,
-        }
-      })
-    )
-
-    setClients(enriched)
+    setLoadError(null)
+    setClients((data ?? []) as ClientWithData[])
     setLoading(false)
   }, [])
 
@@ -255,19 +263,22 @@ export default function ClientesPage() {
     if (!editingClient) return
     setEditSaving(true)
     setEditError(null)
-    const supabase = createClient()
-    const { error } = await supabase.from('profiles').update({
+
+    // Pasa por una server action: el email también tiene que cambiar en
+    // auth.users, cosa que una actualización directa de `profiles` no hacía.
+    const res = await adminUpdateClient(editingClient.id, {
       full_name: editForm.full_name,
       cuit: editForm.cuit,
-      phone: editForm.phone || null,
-      email: editForm.email || null,
-      address: editForm.address || null,
+      phone: editForm.phone || undefined,
+      email: editForm.email || undefined,
+      address: editForm.address || undefined,
       client_type: editForm.client_type,
       trust_level: editForm.trust_level,
-      notes: editForm.notes || null,
-    }).eq('id', editingClient.id)
-    if (error) {
-      setEditError(error.message)
+      notes: editForm.notes || undefined,
+    })
+
+    if (res.error) {
+      setEditError(res.error)
       setEditSaving(false)
       return
     }
@@ -277,14 +288,28 @@ export default function ClientesPage() {
   }
 
   // ── Delete handler ──
+  const openDeleteDialog = async (clientId: string) => {
+    setDeleteConfirmId(clientId)
+    setDeleteError(null)
+    setDeleteImpact(null)
+    // Se consulta qué se va a borrar antes de pedir la confirmación
+    setDeleteImpact(await getClientDeletionImpact(clientId))
+  }
+
   const handleDeleteClient = async (clientId: string) => {
     setDeleting(true)
-    const supabase = createClient()
-    const { error } = await supabase.rpc('delete_user_admin', { user_id: clientId })
-    if (error) {
-      alert('Error al eliminar: ' + error.message)
+    setDeleteError(null)
+
+    const res = await adminDeleteClient(clientId)
+
+    if (res.error) {
+      setDeleteError(res.error)
+      setDeleting(false)
+      return
     }
+
     setDeleteConfirmId(null)
+    setDeleteImpact(null)
     setDeleting(false)
     fetchClients()
   }
@@ -434,21 +459,14 @@ export default function ClientesPage() {
                 />
               </div>
 
-              {/* Password */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-                  Contraseña inicial (portal) <span className="text-red-400">*</span>
-                </Label>
-                <Input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setField('password', e.target.value)}
-                  required
-                  placeholder="Mínimo 6 caracteres"
-                  minLength={6}
-                  className="bg-input/50"
-                />
-              </div>
+              {/* Password — misma política que el registro público */}
+              <PasswordField
+                label="Contraseña inicial (portal)"
+                value={form.password}
+                onChange={(v) => setField('password', v)}
+                showStrength
+                className="bg-input/50"
+              />
 
               {/* Info note */}
               <div className="flex gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
@@ -737,14 +755,19 @@ export default function ClientesPage() {
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setDeleteConfirmId(client.id)}
-                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 w-7 p-0"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        {/* Borrar un cliente arrastra todo su historial
+                            financiero: queda sólo para el administrador. */}
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openDeleteDialog(client.id)}
+                            title="Eliminar cliente"
+                            className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 w-7 p-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -829,20 +852,79 @@ export default function ClientesPage() {
       </Dialog>
 
       {/* ── Delete Confirmation Dialog ── */}
-      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>
-        <DialogContent className="glass-card border-border/50 max-w-sm">
+      <Dialog
+        open={!!deleteConfirmId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteConfirmId(null)
+            setDeleteImpact(null)
+            setDeleteError(null)
+          }
+        }}
+      >
+        <DialogContent className="glass-card border-border/50 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-red-400">Eliminar Cliente</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">¿Estás seguro de que querés eliminar este cliente? Esta acción no se puede deshacer.</p>
-          <div className="flex gap-3 mt-4">
-            <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirmId(null)}>Cancelar</Button>
+
+          <p className="text-sm text-muted-foreground">
+            {deleteClientName
+              ? <>Vas a eliminar la cuenta de <strong className="text-foreground">{deleteClientName}</strong>.</>
+              : 'Vas a eliminar esta cuenta de cliente.'}
+          </p>
+
+          {/* Se dice de antemano qué se pierde: antes bastaba un confirm()
+              para borrar el historial financiero completo de una persona. */}
+          {deleteImpact === null ? (
+            <p className="text-xs text-muted-foreground/70 py-2">Revisando qué datos tiene asociados...</p>
+          ) : (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 space-y-2">
+              <p className="text-xs font-semibold text-red-300">Se borra también, sin vuelta atrás:</p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                <li>· {deleteImpact.contracts} contrato{deleteImpact.contracts === 1 ? '' : 's'} y su historial de eventos</li>
+                <li>· {deleteImpact.credits} crédito{deleteImpact.credits === 1 ? '' : 's'} con todas sus cuotas</li>
+                <li>· Sus tasaciones de activos y el acceso al portal</li>
+              </ul>
+              {(deleteImpact.activeContracts > 0 || deleteImpact.activeCredits > 0) && (
+                <p className="text-xs text-amber-300 flex gap-1.5 items-start pt-1 border-t border-red-500/15">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Atención: tiene {deleteImpact.activeContracts > 0 && `${deleteImpact.activeContracts} inversión(es) en curso`}
+                    {deleteImpact.activeContracts > 0 && deleteImpact.activeCredits > 0 && ' y '}
+                    {deleteImpact.activeCredits > 0 && `${deleteImpact.activeCredits} crédito(s) sin cancelar`}.
+                    Conviene liquidar la posición antes de eliminarlo.
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {deleteError && (
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+              {deleteError}
+            </div>
+          )}
+
+          <div className="flex gap-3 mt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirmId(null)}>
+              Cancelar
+            </Button>
             <Button
-              disabled={deleting}
+              disabled={deleting || deleteImpact === null}
               onClick={() => deleteConfirmId && handleDeleteClient(deleteConfirmId)}
               className="flex-1 bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 font-semibold"
             >
-              {deleting ? <><span className="w-4 h-4 rounded-full border-2 border-red-400 border-t-transparent animate-spin mr-2" />Eliminando...</> : <><Trash2 className="w-4 h-4 mr-2" />Eliminar</>}
+              {deleting ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-red-400 border-t-transparent animate-spin mr-2" />
+                  Eliminando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Eliminar definitivamente
+                </>
+              )}
             </Button>
           </div>
         </DialogContent>

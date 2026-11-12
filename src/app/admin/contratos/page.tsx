@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/context/auth-context'
+import { ContractPdfButton } from '@/components/ContractPdfButton'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -83,6 +84,8 @@ export default function ContratosPage() {
   const [submittingId, setSubmittingId] = useState<string | null>(null)
   const [showLinkDialog, setShowLinkDialog] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
+  /** Error de la última acción, en pantalla en vez de alert(). */
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const fetchData = async () => {
     const supabase = createClient()
@@ -103,89 +106,82 @@ export default function ContratosPage() {
     setLoading(false)
   }
 
+  /**
+   * Acreditación de fondos, vía RPC transaccional: activa el contrato, deja el
+   * evento y asienta el aporte. El alta del activo en consignación la resuelve
+   * el trigger de la base, que esta pantalla antes duplicaba a mano.
+   */
   const handleConfirmPayment = async (contractId: string) => {
     setSubmittingId(contractId)
+    setActionError(null)
+
     const supabase = createClient()
-    const { error } = await supabase
-      .from('contracts')
-      .update({ status: 'activo' })
-      .eq('id', contractId)
-    if (!error) {
-      await supabase.from('contract_events').insert({
-        contract_id: contractId,
-        event_type: 'funds_confirmed',
-        metadata: { confirmed_at: new Date().toISOString() },
-      })
+    const { data, error } = await supabase.rpc('confirm_contract_funds', {
+      p_contract_id: contractId,
+    })
 
-      // Check if we need to add the asset to assets_available
-      const { data: contractData } = await supabase
-        .from('contracts')
-        .select('*, profiles(full_name)')
-        .eq('id', contractId)
-        .single()
-
-      if (contractData?.asset_id) {
-        const { data: assetVal } = await supabase
-          .from('assets_valuation')
-          .select('*')
-          .eq('id', contractData.asset_id)
-          .single()
-
-        if (assetVal) {
-          const { data: existingAvail } = await supabase
-            .from('assets_available')
-            .select('id')
-            .eq('asset_valuation_id', contractData.asset_id)
-            .maybeSingle()
-
-          if (!existingAvail) {
-            const capitalizedType = assetVal.asset_type.charAt(0).toUpperCase() + assetVal.asset_type.slice(1)
-            await supabase.from('assets_available').insert({
-              asset_valuation_id: contractData.asset_id,
-              title: `${capitalizedType} - ${assetVal.description}`,
-              description: `Recibido como forma de pago / inversión de ${contractData.profiles?.full_name || 'cliente'}.`,
-              asset_type: assetVal.asset_type,
-              listed_value: assetVal.market_value,
-              currency: assetVal.currency || 'USD',
-              status: 'disponible'
-            })
-          }
-        }
-      }
-
-      await fetchData()
+    if (error || data?.error) {
+      setActionError('No se pudo confirmar la acreditación: ' + (error?.message ?? data.error))
     } else {
-      alert('Error al confirmar pago: ' + error.message)
+      await fetchData()
     }
     setSubmittingId(null)
   }
 
   const handleDeleteContract = async (contract: ContractWithProfile) => {
+    // Sólo el administrador borra contratos. La política RLS del vendedor era
+    // FOR ALL, así que podía eliminar una inversión activa firmada junto con
+    // todo su historial de eventos detrás de un simple confirm().
+    if (!isAdmin) {
+      setActionError('Sólo un administrador puede eliminar contratos.')
+      return
+    }
+
     const esBorrador = contract.status === 'borrador'
+    const estaFirmado = Boolean(contract.contract_signed_at)
+
     const aviso = esBorrador
       ? '¿Seguro que querés eliminar este borrador?'
-      : `¿Eliminar definitivamente el contrato de ${contract.profiles?.full_name || 'este cliente'}?
-
-` +
-        `Estado: ${getContractStatusLabel(contract.status)}
-` +
-        `Capital: ${formatCurrency(Number(contract.initial_capital), contract.currency)}
-
-` +
-        'Se borra también su historial de eventos. Si tiene un crédito asociado, el crédito se conserva pero queda sin contrato. Esta acción no se puede deshacer.'
+      : `¿Eliminar definitivamente el contrato de ${contract.profiles?.full_name || 'este cliente'}?\n\n` +
+        `Estado: ${getContractStatusLabel(contract.status)}\n` +
+        `Capital: ${formatCurrency(Number(contract.initial_capital), contract.currency)}\n` +
+        (estaFirmado ? '\n⚠ ESTE CONTRATO ESTÁ FIRMADO ELECTRÓNICAMENTE.\n' : '') +
+        '\nSe borra también su historial de eventos y la constancia de firma. ' +
+        'Si tiene un crédito asociado, el crédito se conserva pero queda sin contrato. ' +
+        'Esta acción no se puede deshacer.'
 
     if (!confirm(aviso)) return
 
+    // Un contrato firmado es un instrumento legal: segunda confirmación escrita
+    if (estaFirmado) {
+      const typed = prompt(
+        'Para confirmar, escribí ELIMINAR en mayúsculas.\n\n' +
+          'Tené en cuenta que podés necesitar este documento ante un reclamo.'
+      )
+      if (typed !== 'ELIMINAR') {
+        setActionError('Eliminación cancelada: no se escribió la confirmación.')
+        return
+      }
+    }
+
     setSubmittingId(contract.id)
+    setActionError(null)
+
     const supabase = createClient()
-    const { error } = await supabase
-      .from('contracts')
-      .delete()
-      .eq('id', contract.id)
+
+    // El PDF del bucket se borra aparte: borrar la fila dejaba el archivo
+    // huérfano en Storage para siempre.
+    if (estaFirmado) {
+      const path = contract.contract_pdf_path || `${contract.id}_signed.pdf`
+      await supabase.storage.from('contracts').remove([path])
+    }
+
+    const { error } = await supabase.from('contracts').delete().eq('id', contract.id)
+
     if (!error) {
       await fetchData()
     } else {
-      alert('No se pudo eliminar el contrato: ' + error.message)
+      setActionError('No se pudo eliminar el contrato: ' + error.message)
     }
     setSubmittingId(null)
   }
@@ -228,7 +224,7 @@ export default function ContratosPage() {
     setSubmittingId(null)
 
     if (error) {
-      alert('Error al duplicar la plantilla: ' + error.message)
+      setActionError('No se pudo duplicar la plantilla: ' + error.message)
       return
     }
     // La copia nace inactiva: se abre directamente para editarla y activarla
@@ -244,7 +240,7 @@ export default function ContratosPage() {
       .eq('id', template.id)
     setSubmittingId(null)
     if (error) {
-      alert('No se pudo cambiar el estado: ' + error.message)
+      setActionError('No se pudo cambiar el estado: ' + error.message)
       return
     }
     fetchData()
@@ -259,7 +255,7 @@ Los contratos ya emitidos con ella conservan su PDF firmado.`)) return
     const { error } = await supabase.from('contract_templates').delete().eq('id', template.id)
     setSubmittingId(null)
     if (error) {
-      alert('No se pudo eliminar: ' + error.message)
+      setActionError('No se pudo eliminar la plantilla: ' + error.message)
       return
     }
     fetchData()
@@ -279,7 +275,7 @@ Se borran todas las que estén marcadas como Inactiva. Las activas no se tocan.`
       .in('id', inactive.map(t => t.id))
     setSubmittingId(null)
     if (error) {
-      alert('No se pudieron eliminar: ' + error.message)
+      setActionError('No se pudieron eliminar las plantillas: ' + error.message)
       return
     }
     fetchData()
@@ -312,6 +308,20 @@ Se borran todas las que estén marcadas como Inactiva. Las activas no se tocan.`
           </Link>
         </div>
       </div>
+
+      {/* Errores de acción en pantalla, en vez de alert() del navegador */}
+      {actionError && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/30 animate-fade-in">
+          <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <p className="flex-1 text-sm text-red-300">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-red-400/60 hover:text-red-300 text-xs shrink-0"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
 
       {/* Alert: retiros pendientes */}
       {pendingWithdrawals.length > 0 && (
@@ -465,16 +475,13 @@ Se borran todas las que estén marcadas como Inactiva. Las activas no se tocan.`
                           </Button>
                         )}
 
-                        {contract.contract_pdf_url && (
-                          <a
-                            href={contract.contract_pdf_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), "h-8 gap-1.5")}
-                          >
-                            <FileSignature className="w-3.5 h-3.5" />
-                            PDF
-                          </a>
+                        {/* El bucket es privado: la URL se pide firmada al servidor */}
+                        {contract.contract_signed_at && (
+                          <ContractPdfButton
+                            contractId={contract.id}
+                            label="PDF"
+                            className="h-8"
+                          />
                         )}
                       </div>
                     </div>

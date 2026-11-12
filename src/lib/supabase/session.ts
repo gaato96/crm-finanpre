@@ -80,8 +80,26 @@ export async function updateSession(request: NextRequest) {
     return cachedRole ?? null
   }
 
-  // Public routes
-  if (pathname === '/login' || pathname === '/registro' || pathname === '/' || pathname.startsWith('/firmar') || pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/manifest') || pathname.startsWith('/sw') || pathname.startsWith('/icons')) {
+  // Rutas públicas.
+  // `/recuperar` y `/restablecer` tienen que entrar acá: al volver del enlace
+  // de recuperación el usuario ya trae sesión, y sin esta excepción el proxy
+  // lo mandaba al panel sin dejarlo cambiar la contraseña.
+  const isPublicRoute =
+    pathname === '/login' ||
+    pathname === '/registro' ||
+    pathname === '/' ||
+    pathname === '/recuperar' ||
+    pathname === '/restablecer' ||
+    pathname.startsWith('/firmar') ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/manifest') ||
+    pathname.startsWith('/sw') ||
+    pathname.startsWith('/icons')
+
+  if (isPublicRoute) {
+    // Sólo estas tres mandan al panel cuando ya hay sesión iniciada
     if (user && (pathname === '/login' || pathname === '/registro' || pathname === '/')) {
       const role = await getUserRole()
       if (role === 'admin' || role === 'vendedor') {

@@ -23,6 +23,7 @@ import {
   Megaphone,
   Settings,
   UserCog,
+  BookOpen,
 } from 'lucide-react'
 
 const navItems = [
@@ -32,6 +33,7 @@ const navItems = [
   { href: '/admin/inversiones', label: 'Inversiones', icon: TrendingUp, roles: ['admin'] },
   { href: '/admin/contratos', label: 'Contratos', icon: FileText, roles: ['admin', 'vendedor'] },
   { href: '/admin/creditos', label: 'Créditos', icon: CreditCard, roles: ['admin', 'vendedor'] },
+  { href: '/admin/movimientos', label: 'Movimientos', icon: BookOpen, roles: ['admin'] },
   { href: '/admin/activos', label: 'Activos Disponibles', icon: Package, roles: ['admin'] },
   { href: '/admin/anuncios', label: 'Anuncios', icon: Megaphone, roles: ['admin'] },
   { href: '/admin/configuracion', label: 'Configuración', icon: Settings, roles: ['admin'] },
@@ -66,7 +68,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   // If no user after loading, render nothing (redirect is in progress)
   if (!user) return null
 
-  const userRole = profile?.role || 'admin'
+  // Ante la duda, el menú más restringido.
+  // El default era 'admin': si el perfil tardaba en cargar o fallaba, un
+  // vendedor veía por un instante todos los accesos de administrador.
+  const userRole = profile?.role ?? 'vendedor'
   const filteredNavItems = navItems.filter(item => item.roles.includes(userRole))
 
   const isActive = (href: string, exact?: boolean) => {

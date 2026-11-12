@@ -99,6 +99,91 @@ export interface ValuationResult {
   saleabilityReasons: string[]
 }
 
+// ──────────────────────────────────────────
+// SEGMENTO DEL VEHÍCULO
+// ──────────────────────────────────────────
+
+export interface VehicleSegment {
+  key: string
+  label: string
+  /** Factor sobre el precio base de la configuración. */
+  multiplier: number
+}
+
+/**
+ * Segmentos reconocidos, del más barato al más caro. El multiplicador se aplica
+ * sobre `config.vehicle.basePrice` (un auto de gama media típico = 1.0).
+ *
+ * Esto es una aproximación, no una tabla de precios: sirve para que la
+ * estimación arranque en el orden de magnitud correcto. Para tasar en serio
+ * conviene enganchar una fuente real de precios (InfoAuto, por ejemplo) y usar
+ * esto sólo como respaldo.
+ */
+export const VEHICLE_SEGMENTS: (VehicleSegment & { patterns: string[] })[] = [
+  {
+    key: 'moto',
+    label: 'Moto',
+    multiplier: 0.25,
+    patterns: ['moto', 'honda cg', 'gilera', 'zanella', 'motomel', 'corven', 'rouser', 'ybr', 'xr 150', 'cb 125'],
+  },
+  {
+    key: 'chico',
+    label: 'Auto chico / entrada de gama',
+    multiplier: 0.65,
+    patterns: ['ka', 'gol', 'up', 'onix', 'celta', 'corsa', 'palio', 'uno', 'mobi', 'spring', 'sandero', 'kwid', 'clio', 'agile', 'fiesta', 'march', 'etios', 'argo', 'cronos', 'polo'],
+  },
+  {
+    key: 'medio',
+    label: 'Auto mediano',
+    multiplier: 1,
+    patterns: ['corolla', 'cruze', 'focus', 'megane', 'civic', 'sentra', 'golf', 'vento', 'virtus', 'jetta', '308', '408', 'c4', 'logan', 'linea', 'elantra'],
+  },
+  {
+    key: 'suv',
+    label: 'SUV / crossover',
+    multiplier: 1.6,
+    patterns: ['suv', 'tracker', 'ecosport', 'duster', 'kicks', 'creta', 'tucson', 'tiguan', 'taos', 'nivus', 'compass', 'renegade', 'territory', 'corolla cross', 'hrv', 'crv', 'sw4', 'pajero', 'captur', 'c3 aircross'],
+  },
+  {
+    key: 'pickup',
+    label: 'Pickup / utilitario',
+    multiplier: 2.1,
+    patterns: ['hilux', 'ranger', 'amarok', 's10', 's-10', 'frontier', 'toro', 'strada', 'saveiro', 'montana', 'oroch', 'maverick', 'f-100', 'f100', 'l200', 'kangoo', 'partner', 'berlingo', 'ducato', 'sprinter', 'master', 'trafic', 'boxer'],
+  },
+  {
+    key: 'premium',
+    label: 'Alta gama',
+    multiplier: 3.2,
+    patterns: ['bmw', 'mercedes', 'audi', 'volvo', 'lexus', 'porsche', 'jaguar', 'land rover', 'range rover', 'mini cooper', 'alfa romeo'],
+  },
+]
+
+const DEFAULT_SEGMENT: VehicleSegment = {
+  key: 'medio',
+  label: 'Auto mediano (estimado)',
+  multiplier: 1,
+}
+
+/**
+ * Deduce el segmento a partir de la marca y el modelo escritos a mano.
+ * Si no reconoce nada, asume gama media y lo deja dicho en el resultado.
+ */
+export function detectVehicleSegment(brandModel: string): VehicleSegment & { matched: boolean } {
+  const text = (brandModel || '').toLowerCase().trim()
+  if (!text) return { ...DEFAULT_SEGMENT, matched: false }
+
+  // Se recorre de mayor a menor precio: "hilux sw4" debe caer en pickup, y una
+  // "bmw x5" en premium antes que en SUV.
+  for (let i = VEHICLE_SEGMENTS.length - 1; i >= 0; i--) {
+    const segment = VEHICLE_SEGMENTS[i]
+    if (segment.patterns.some((p) => text.includes(p))) {
+      return { key: segment.key, label: segment.label, multiplier: segment.multiplier, matched: true }
+    }
+  }
+
+  return { ...DEFAULT_SEGMENT, matched: false }
+}
+
 /**
  * Calculates vehicle value in USD
  */
@@ -108,9 +193,14 @@ export function calculateVehicleValuation(
 ): ValuationResult {
   const currentYear = new Date().getFullYear()
   const age = Math.max(0, currentYear - details.year)
-  
-  // Base price
-  let price = config.vehicle.basePrice
+
+  // Precio base según el segmento del vehículo.
+  //
+  // Antes se usaba un único `basePrice` de USD 12.000 para todo: `brandModel`
+  // se cargaba en el formulario pero no entraba en ninguna cuenta, así que un
+  // Ford Ka y una Hilux salían tasados igual.
+  const segment = detectVehicleSegment(details.brandModel)
+  let price = config.vehicle.basePrice * segment.multiplier
 
   // Depreciation: -5% per year of age
   const ageDepreciationMultiplier = Math.max(0.15, 1 - age * 0.05)
@@ -142,11 +232,15 @@ export function calculateVehicleValuation(
 
   // Calulate saleability for vehicle
   let score = 80; // cars are highly liquid usually
-  const reasons: string[] = ['Vehículo: alta liquidez de mercado general.'];
+  const reasons: string[] = [`Segmento detectado: ${segment.label}.`];
+  if (!segment.matched) {
+    reasons.push('No se reconoció la marca/modelo: se estimó como gama media. Verificá el valor a mano.')
+  }
   if (age > 15) { score -= 20; reasons.push('Más de 15 años de antigüedad reduce el mercado potencial.'); }
   if (details.crashes === 'major') { score -= 30; reasons.push('Daño mayor reportado dificulta la venta.'); }
   if (details.engineCondition === 'poor') { score -= 30; reasons.push('Motor en mal estado requiere reparación previa a la venta.'); }
-  
+  if (segment.key === 'premium') { score -= 15; reasons.push('La alta gama tiene menos compradores y tarda más en venderse.'); }
+
   score = Math.max(0, Math.min(100, score))
   let label: 'Alta' | 'Media' | 'Baja' = 'Media';
   if (score >= 80) label = 'Alta';

@@ -22,6 +22,8 @@ import {
 import { StarRating } from '@/components/StarRating'
 import { adminResetPassword } from './actions'
 import { generateCreditScoring } from '../actions'
+import { PasswordField } from '@/components/PasswordField'
+import { ContractPdfButton } from '@/components/ContractPdfButton'
 import { Textarea } from '@/components/ui/textarea'
 import { calculateVehicleValuation, calculateRealEstateValuation, type ValuationConfig } from '@/lib/valuation'
 
@@ -49,6 +51,8 @@ export default function ClientDetailPage() {
   const [scoringLoading, setScoringLoading] = useState(false)
   const [scoringError, setScoringError] = useState<string | null>(null)
   const [scoringSuccess, setScoringSuccess] = useState(false)
+  /** El servidor avisa si tuvo que usar el motor de reglas en vez de la IA. */
+  const [scoringUsedFallback, setScoringUsedFallback] = useState(false)
 
   const supabase = createClient()
 
@@ -617,19 +621,20 @@ export default function ClientDetailPage() {
                         </div>
                       )}
 
-                      {/* Ver Contrato PDF si ya está disponible */}
-                      {contract.contract_pdf_url && (
-                        <a href={contract.contract_pdf_url} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mt-3 mr-4">
-                          <FileText className="w-3.5 h-3.5" /> Descargar Contrato PDF
-                        </a>
-                      )}
-                      
-                      {contract.contract_url && contract.contract_url !== contract.contract_pdf_url && (
-                        <a href={contract.contract_url} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mt-3">
-                          <FileText className="w-3.5 h-3.5" /> Ver PDF original
-                        </a>
+                      {/*
+                        El bucket pasó a ser privado: la descarga se pide con una
+                        URL firmada. Se quitó el enlace a `contract_url`, columna
+                        del schema original que nunca se escribió.
+                      */}
+                      {contract.contract_signed_at && (
+                        <div className="mt-3">
+                          <ContractPdfButton
+                            contractId={contract.id}
+                            label="Descargar Contrato PDF"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-primary hover:bg-primary/10"
+                          />
+                        </div>
                       )}
                     </CardContent>
                   </Card>
@@ -866,6 +871,7 @@ export default function ClientDetailPage() {
                             setScoringError(res.error);
                           } else {
                             setScoringSuccess(true);
+                            setScoringUsedFallback(Boolean(res.usedFallback));
                             fetchData(); // reload profile details to show new scoring
                           }
                           setScoringLoading(false);
@@ -935,9 +941,13 @@ export default function ClientDetailPage() {
                         </div>
                       )}
                       
-                      {!process.env.GEMINI_API_KEY && !profile.credit_scoring_updated_at && (
+                      {/* `process.env.GEMINI_API_KEY` en un componente cliente
+                          siempre es undefined, así que el aviso aparecía aunque
+                          la clave estuviera bien configurada —y filtraba el
+                          nombre de una variable interna a la pantalla. */}
+                      {scoringUsedFallback && (
                         <div className="p-2.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-400 text-center leading-normal">
-                          💡 La variable GEMINI_API_KEY no está configurada en .env.local. El sistema utilizará la simulación basada en reglas para procesar el informe.
+                          💡 El análisis se generó con el motor de reglas local, sin asistencia de IA. Revisá la recomendación antes de usarla.
                         </div>
                       )}
                     </div>
@@ -960,17 +970,13 @@ export default function ClientDetailPage() {
           </DialogHeader>
 
           <form onSubmit={handleResetPassword} className="space-y-4 mt-2">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground uppercase font-semibold">Nueva Contraseña</Label>
-              <Input
-                type="password"
-                required
-                placeholder="Mínimo 6 caracteres"
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                className="bg-input/50"
-              />
-            </div>
+            <PasswordField
+              label="Nueva Contraseña"
+              value={newPassword}
+              onChange={setNewPassword}
+              showStrength
+              className="bg-input/50"
+            />
 
             {resetStatus?.error && (
               <div className="p-2.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-400">

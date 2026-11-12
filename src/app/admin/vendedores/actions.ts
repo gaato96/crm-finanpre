@@ -1,6 +1,7 @@
 'use server'
 
 import { requireAdmin, getServiceClient as getAdminClient, AuthorizationError } from '@/lib/auth-guard'
+import { checkPassword } from '@/lib/password'
 
 export async function adminCreateSeller(data: {
   email: string
@@ -13,21 +14,23 @@ export async function adminCreateSeller(data: {
     // Crear una cuenta de vendedor da acceso al panel: solo un admin puede hacerlo
     await requireAdmin()
 
-    if (!data.email || !data.password || data.password.length < 8) {
-      return { error: 'Email y contraseña (mínimo 8 caracteres) son obligatorios.' }
+    if (!data.email) return { error: 'El email es obligatorio.' }
+
+    // Una cuenta de vendedor da acceso al panel: se le exige el mínimo reforzado
+    const passwordCheck = checkPassword(data.password, true)
+    if (!passwordCheck.valid) {
+      return { error: passwordCheck.error ?? 'La contraseña no cumple los requisitos.' }
     }
 
     const supabase = getAdminClient()
 
-    // Create auth user with vendedor role in metadata
+    // El rol NO va en user_metadata: el trigger lo ignora (siempre crea
+    // 'investor') y dejarlo ahí sugería que el metadata define privilegios.
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: data.email,
       password: data.password,
       email_confirm: true,
-      user_metadata: { 
-        full_name: data.full_name,
-        role: 'vendedor' 
-      },
+      user_metadata: { full_name: data.full_name },
     })
 
     if (authError) {
@@ -39,10 +42,9 @@ export async function adminCreateSeller(data: {
       return { error: 'No se pudo obtener el ID del vendedor creado' }
     }
 
-    // Wait a brief moment for the trigger to insert the basic profile,
-    // then upsert to overwrite and set role/cuit/phone correctly.
-    await new Promise(resolve => setTimeout(resolve, 500))
-
+    // El upsert no necesita esperar al trigger: si el perfil ya existe lo
+    // actualiza, y si todavía no, lo crea. El sleep de 500 ms era una carrera
+    // disfrazada que igual podía fallar en un día lento.
     const { error: profileError } = await supabase.from('profiles').upsert({
       id: userId,
       full_name: data.full_name,
@@ -53,6 +55,11 @@ export async function adminCreateSeller(data: {
     })
 
     if (profileError) {
+      // Sin perfil la cuenta no sirve para nada: se revierte el alta
+      await supabase.auth.admin.deleteUser(userId)
+      if (/duplicate key|unique/i.test(profileError.message)) {
+        return { error: 'Ese CUIT ya está registrado para otra persona.' }
+      }
       return { error: profileError.message }
     }
 

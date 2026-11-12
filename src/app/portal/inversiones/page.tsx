@@ -26,7 +26,14 @@ export default function PortalInversionesPage() {
 
   const fetchContracts = async () => {
     if (!user) return
-    const { data } = await supabase.from('contracts').select('*, assets_valuation(*)').eq('client_id', user.id).order('created_at', { ascending: false })
+    // `kind = 'inversion'`: los créditos generan su propia fila en `contracts`
+    // y no deben mostrarse como inversiones del cliente.
+    const { data } = await supabase
+      .from('contracts')
+      .select('*, assets_valuation(*)')
+      .eq('client_id', user.id)
+      .eq('kind', 'inversion')
+      .order('created_at', { ascending: false })
     setContracts((data || []) as typeof contracts)
     setLoading(false)
   }
